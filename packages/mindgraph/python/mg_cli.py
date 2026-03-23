@@ -70,7 +70,18 @@ def _get_neo4j_driver():
     )
 
 
+def _unique_profiles(profiles):
+    """Deduplicate entity profiles by name."""
+    seen, out = set(), []
+    for p in profiles.values():
+        if p["name"] not in seen:
+            seen.add(p["name"])
+            out.append(p)
+    return out
+
+
 async def cmd_search(args):
+    """Search the knowledge graph. Supports --json for machine-readable output."""
     g = make_graphiti()
     try:
         group_ids = [args.group] if args.group else None
@@ -79,14 +90,69 @@ async def cmd_search(args):
         await g.close()
 
     if not results:
+        if getattr(args, "json_output", False):
+            print(json.dumps({"edges": [], "entities": []}))
+            return
         print("No results found.")
         return
 
+    # Collect entity UUIDs from results
+    entity_uuids = set()
+    for r in results:
+        src = getattr(r, "source_node_uuid", None)
+        tgt = getattr(r, "target_node_uuid", None)
+        if src:
+            entity_uuids.add(src)
+        if tgt:
+            entity_uuids.add(tgt)
+
+    # Batch-fetch entity profiles from Neo4j
+    profiles = {}
+    if entity_uuids:
+        driver = _get_neo4j_driver()
+        try:
+            with driver.session() as session:
+                result = session.run(
+                    "MATCH (e:Entity) WHERE e.uuid IN $uuids "
+                    "RETURN e.uuid AS uuid, e.name AS name, e.category AS category, e.tags AS tags",
+                    uuids=list(entity_uuids),
+                )
+                for rec in result:
+                    profiles[rec["uuid"]] = {
+                        "name": rec["name"] or "",
+                        "category": rec["category"] or "other",
+                        "tags": list(rec["tags"] or []),
+                    }
+        finally:
+            driver.close()
+
+    unique = _unique_profiles(profiles)
+
+    # JSON output mode
+    if getattr(args, "json_output", False):
+        edges = []
+        for r in results:
+            edges.append({
+                "name": getattr(r, "name", ""),
+                "fact": getattr(r, "fact", None) or str(r),
+                "source_node_uuid": getattr(r, "source_node_uuid", ""),
+                "target_node_uuid": getattr(r, "target_node_uuid", ""),
+            })
+        print(json.dumps({"edges": edges, "entities": unique}))
+        return
+
+    # Human-readable output
     print(f"Found {len(results)} results:\n")
     for i, r in enumerate(results, 1):
         fact = getattr(r, "fact", None) or str(r)
         name = getattr(r, "name", "")
         print(f"  {i}. [{name}] {fact}")
+
+    if unique:
+        print("\nEntity profiles:")
+        for p in sorted(unique, key=lambda x: x["name"]):
+            tags_str = ", ".join(p["tags"]) if p["tags"] else "(no tags)"
+            print(f"  - {p['name']} [{p['category']}]: {tags_str}")
 
 
 async def cmd_add(args):
@@ -732,6 +798,8 @@ def main():
     p_search.add_argument("query", help="Search query")
     p_search.add_argument("--limit", type=int, default=10)
     p_search.add_argument("--group", default="")
+    p_search.add_argument("--json", dest="json_output", action="store_true",
+                          help="Output structured JSON (for machine consumption)")
 
     # add
     p_add = sub.add_parser("add", help="Add memory")
