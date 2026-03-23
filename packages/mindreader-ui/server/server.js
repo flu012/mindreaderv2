@@ -207,18 +207,13 @@ export function createServer(config, logger) {
   });
 
   /**
-   * PUT /api/entity/:name — Update entity tags and/or category
+   * PUT /api/entity/:name — Update entity properties (tags, category, summary, node_type)
    */
   app.put("/api/entity/:name", async (req, res) => {
     try {
       const { name } = req.params;
-      const { tags, category } = req.body || {};
+      const { tags, category, summary, node_type, group_id } = req.body || {};
 
-      if (tags === undefined && category === undefined) {
-        return res.status(400).json({ error: "Provide 'tags' and/or 'category' to update" });
-      }
-
-      // Build SET clause dynamically
       const setClauses = [];
       const params = { name };
 
@@ -230,13 +225,25 @@ export function createServer(config, logger) {
         setClauses.push("e.tags = $tags");
         params.tags = normalized;
       }
-
       if (category !== undefined) {
-        if (typeof category !== "string") {
-          return res.status(400).json({ error: "'category' must be a string" });
-        }
         setClauses.push("e.category = $category");
         params.category = category;
+      }
+      if (summary !== undefined) {
+        setClauses.push("e.summary = $summary");
+        params.summary = summary;
+      }
+      if (node_type !== undefined) {
+        setClauses.push("e.node_type = $node_type");
+        params.node_type = node_type;
+      }
+      if (group_id !== undefined) {
+        setClauses.push("e.category = $category_legacy");
+        params.category_legacy = group_id;
+      }
+
+      if (setClauses.length === 0) {
+        return res.status(400).json({ error: "Nothing to update" });
       }
 
       const result = await query(driver,
@@ -781,34 +788,7 @@ print(resp.choices[0].message.content.strip())
     }
   });
 
-  /**
-   * PUT /api/entity/:name — Update entity properties (summary, category, node_type)
-   */
-  app.put("/api/entity/:name", async (req, res) => {
-    try {
-      const { name } = req.params;
-      const { summary, category, node_type, group_id } = req.body;
-
-      const sets = [];
-      const params = { name };
-      if (summary !== undefined) { sets.push("e.summary = $summary"); params.summary = summary; }
-      if (category !== undefined) { sets.push("e.category = $category"); params.category = category; }
-      if (node_type !== undefined) { sets.push("e.node_type = $node_type"); params.node_type = node_type; }
-      // Legacy: support group_id for backward compat
-      if (group_id !== undefined) { sets.push("e.category = $category_legacy"); params.category_legacy = group_id; }
-
-      if (sets.length === 0) return res.status(400).json({ error: "Nothing to update" });
-
-      await query(driver,
-        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) SET ${sets.join(", ")}`,
-        params
-      );
-
-      res.json({ ok: true, entity: name });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // Old PUT /api/entity/:name handler removed — merged into handler at line ~212
 
   /**
    * PUT /api/entity/:name/summary — Update entity summary (user-editable, legacy)
@@ -2464,19 +2444,11 @@ except Exception:
 
           // Determine what to write
           const needsCat = !entity.existingCategory && cat && [...validKeys, "other"].includes(cat);
-          const needsTags = tags.length > 0;
-
-          if (!needsCat && !needsTags) continue;
-
-          if (needsCat && needsTags) {
+          // Always write tags (even []) so entities aren't re-fetched every 60s
+          if (needsCat) {
             await session.run(
               `MATCH (e:Entity) WHERE elementId(e) = $eid SET e.category = $cat, e.tags = $tags`,
               { eid: entity.eid, cat, tags }
-            );
-          } else if (needsCat) {
-            await session.run(
-              `MATCH (e:Entity) WHERE elementId(e) = $eid SET e.category = $cat`,
-              { eid: entity.eid, cat }
             );
           } else {
             await session.run(
