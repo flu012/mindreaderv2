@@ -1998,8 +1998,39 @@ except Exception:
     try {
       const { q, limit = 10 } = req.query;
       if (!q) return res.status(400).json({ error: "Missing query parameter 'q'" });
-      const output = await mgExec(["search", q, "--limit", String(limit)], 60000);
-      res.json({ output });
+      const jsonOutput = await mgExec(["search", q, "--limit", String(limit), "--json"], 60000);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonOutput);
+      } catch {
+        // Fallback to raw text if JSON parse fails
+        const textOutput = await mgExec(["search", q, "--limit", String(limit)], 60000);
+        return res.json({ output: textOutput });
+      }
+
+      const edges = parsed.edges || [];
+      const entities = parsed.entities || [];
+
+      // Build human-readable output with entity profiles
+      const lines = [];
+      if (edges.length === 0) {
+        lines.push("No results found.");
+      } else {
+        lines.push(`Found ${edges.length} results:\n`);
+        edges.forEach((e, i) => {
+          lines.push(`  ${i + 1}. [${e.name}] ${e.fact || ""}`);
+        });
+        if (entities.length > 0) {
+          lines.push("\nEntity profiles:");
+          for (const ent of entities.sort((a, b) => (a.name || "").localeCompare(b.name || ""))) {
+            const tags = (ent.tags || []).join(", ") || "(no tags)";
+            lines.push(`  - ${ent.name} [${ent.category || "other"}]: ${tags}`);
+          }
+        }
+      }
+
+      res.json({ output: lines.join("\n"), edges, entities });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
