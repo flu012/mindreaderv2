@@ -1,5 +1,5 @@
 {
-  "name": "@mindreader/openclaw-plugin",
+  "name": "mindreader",
   "version": "0.4.0",
   "type": "module",
   "main": "index.js",
