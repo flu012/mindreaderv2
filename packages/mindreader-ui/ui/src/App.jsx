@@ -294,6 +294,8 @@ export default function App() {
                   onNodeClick={handleNodeClick}
                   onNodeHover={handleNodeHover}
                   selectedNode={selectedNode}
+                  searchQuery={searchQuery}
+                  onSearchSelect={() => setSearchQuery("")}
                 />
                 {hoveredNode && !selectedNode && (
                   <HoverTooltip node={hoveredNode} position={tooltipPos} />

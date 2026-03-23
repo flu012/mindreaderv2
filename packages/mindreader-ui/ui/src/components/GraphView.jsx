@@ -30,7 +30,7 @@ function dim(hex, alpha = 0.4) {
 }
 
 const GraphView = forwardRef(function GraphView(
-  { data, colors, onNodeClick, selectedNode, onNodeHover },
+  { data, colors, onNodeClick, selectedNode, onNodeHover, searchQuery: externalSearchQuery, onSearchSelect },
   ref
 ) {
   const containerRef = useRef(null);
@@ -44,11 +44,7 @@ const GraphView = forwardRef(function GraphView(
   });
   const cameraRatioRef = useRef(1);
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const searchInputRef = useRef(null);
 
   const getNodeContext = useCallback((graph, nodeId) => {
     const neighbors = new Set();
@@ -215,8 +211,8 @@ const GraphView = forwardRef(function GraphView(
   // Search filter
   useEffect(() => {
     const graph = graphRef.current;
-    if (!graph || !searchQuery.trim()) { setSearchResults([]); return; }
-    const q = searchQuery.toLowerCase();
+    if (!graph || !externalSearchQuery?.trim()) { setSearchResults([]); return; }
+    const q = externalSearchQuery.toLowerCase();
     const results = [];
     graph.forEachNode((node, attrs) => {
       if (attrs.label && attrs.label.toLowerCase().includes(q)) {
@@ -224,7 +220,7 @@ const GraphView = forwardRef(function GraphView(
       }
     });
     setSearchResults(results.slice(0, 10));
-  }, [searchQuery]);
+  }, [externalSearchQuery]);
 
   // Select from search
   const handleSearchSelect = useCallback((nodeId) => {
@@ -246,10 +242,9 @@ const GraphView = forwardRef(function GraphView(
       onNodeClick({ name: nodeAttrs.label, id: nodeId, category: nodeAttrs.category });
     }
 
-    setSearchQuery("");
-    setShowDropdown(false);
-    searchInputRef.current?.blur();
-  }, [applyHighlight, onNodeClick]);
+    // Clear global search via parent callback
+    if (onSearchSelect) onSearchSelect();
+  }, [applyHighlight, onNodeClick, onSearchSelect]);
 
   // Update graph data
   useEffect(() => {
@@ -328,48 +323,25 @@ const GraphView = forwardRef(function GraphView(
           cursor: "grab",
         }}
       />
-      {/* Search box */}
-      <div style={{
-        position: "absolute", top: 12, left: "50%",
-        transform: "translateX(-50%)", zIndex: 100, width: 320,
-      }}>
+      {/* Search results dropdown (driven by global search bar) */}
+      {searchResults.length > 0 && (
         <div style={{
-          background: "rgba(15, 15, 35, 0.85)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid rgba(74, 158, 255, 0.2)",
-          borderRadius: 10,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+          position: "absolute", top: 12, left: "50%",
+          transform: "translateX(-50%)", zIndex: 100, width: 320,
         }}>
-          <div style={{ display: "flex", alignItems: "center", padding: "0 12px" }}>
-            <span style={{ color: "#8888aa", fontSize: 14, marginRight: 8 }}>🔍</span>
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search nodes..."
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); }}
-              onFocus={() => setShowDropdown(true)}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") { setSearchQuery(""); setShowDropdown(false); searchInputRef.current?.blur(); }
-                if (e.key === "Enter" && searchResults.length > 0) handleSearchSelect(searchResults[0].id);
-              }}
-              style={{
-                flex: 1, background: "transparent", border: "none",
-                color: "#e0e0f0", fontSize: 14, padding: "10px 0",
-                outline: "none", fontFamily: "Inter, -apple-system, sans-serif",
-              }}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => { setSearchQuery(""); setShowDropdown(false); }}
-                style={{ background: "none", border: "none", color: "#8888aa", cursor: "pointer", fontSize: 12, padding: "2px 4px" }}
-              >✕</button>
-            )}
-          </div>
-          {showDropdown && searchResults.length > 0 && (
-            <div style={{ borderTop: "1px solid rgba(74, 158, 255, 0.15)", maxHeight: 240, overflowY: "auto" }}>
-              {searchResults.map((r) => (
+          <div style={{
+            background: "rgba(15, 15, 35, 0.85)",
+            backdropFilter: "blur(16px)",
+            border: "1px solid rgba(74, 158, 255, 0.2)",
+            borderRadius: 10,
+            boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+            maxHeight: 280, overflowY: "auto",
+          }}>
+            {searchResults.map((r) => {
+              // Look up tags from original data
+              const nodeData = data?.nodes?.find(n => n.id === r.id);
+              const tags = nodeData?.tags || [];
+              return (
                 <div
                   key={r.id}
                   onMouseDown={(e) => { e.preventDefault(); handleSearchSelect(r.id); }}
@@ -383,19 +355,24 @@ const GraphView = forwardRef(function GraphView(
                   onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                 >
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: r.color || "#6688aa", flexShrink: 0 }} />
-                  <span style={{ flex: 1 }}>{r.label}</span>
+                  <span style={{ flex: 1 }}>
+                    {r.label}
+                    {tags.length > 0 && (
+                      <span className="tag-pills" style={{ display: "inline-flex", marginLeft: 6, gap: 3 }}>
+                        {tags.slice(0, 3).map(t => (
+                          <span key={t} className="tag-pill tag-pill--small">{t}</span>
+                        ))}
+                        {tags.length > 3 && <span style={{ fontSize: 10, color: "#8888aa" }}>+{tags.length - 3}</span>}
+                      </span>
+                    )}
+                  </span>
                   <span style={{ fontSize: 10, color: "#8888aa", textTransform: "uppercase", letterSpacing: 1 }}>{r.category}</span>
                 </div>
-              ))}
-            </div>
-          )}
-          {showDropdown && searchQuery && searchResults.length === 0 && (
-            <div style={{ padding: 12, textAlign: "center", color: "#666", fontSize: 13, borderTop: "1px solid rgba(74, 158, 255, 0.15)" }}>
-              No nodes found
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 });
