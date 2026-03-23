@@ -278,13 +278,10 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 with open(os.getenv("MG_PROMPT_FILE")) as f:
     prompt = json.load(f)
-resp = client.chat.completions.create(
-    model=os.getenv("MG_MODEL", "gpt-4o-mini"),
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0.3,
-    max_tokens=400,
-    extra_body={"enable_thinking": False}
-)
+kwargs = dict(model=os.getenv("MG_MODEL", "gpt-4o-mini"), messages=[{"role": "user", "content": prompt}], temperature=0.3, max_tokens=400)
+if "dashscope" in (os.getenv("LLM_BASE_URL") or ""):
+    kwargs["extra_body"] = {"enable_thinking": False}
+resp = client.chat.completions.create(**kwargs)
 print(resp.choices[0].message.content.strip())
 `;
 
@@ -993,14 +990,10 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 with open(os.getenv("MG_PROMPT_FILE")) as f:
     prompt = json.load(f)
-resp = client.chat.completions.create(
-    model=os.getenv("MG_MODEL", "gpt-4o-mini"),
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0.1,
-    max_tokens=2000,
-    response_format={"type": "json_object"},
-    extra_body={"enable_thinking": False}
-)
+kwargs = dict(model=os.getenv("MG_MODEL", "gpt-4o-mini"), messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=2000, response_format={"type": "json_object"})
+if "dashscope" in (os.getenv("LLM_BASE_URL") or ""):
+    kwargs["extra_body"] = {"enable_thinking": False}
+resp = client.chat.completions.create(**kwargs)
 text = resp.choices[0].message.content.strip()
 try:
     data = json.loads(text)
@@ -1645,14 +1638,10 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 with open(os.getenv("MG_PROMPT_FILE")) as f:
     prompt = json.load(f)
-resp = client.chat.completions.create(
-    model=os.getenv("MG_MODEL", "gpt-4o-mini"),
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0.1,
-    max_tokens=2000,
-    response_format={"type": "json_object"},
-    extra_body={"enable_thinking": False}
-)
+kwargs = dict(model=os.getenv("MG_MODEL", "gpt-4o-mini"), messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=2000, response_format={"type": "json_object"})
+if "dashscope" in (os.getenv("LLM_BASE_URL") or ""):
+    kwargs["extra_body"] = {"enable_thinking": False}
+resp = client.chat.completions.create(**kwargs)
 text = resp.choices[0].message.content.strip()
 try:
     data = json.loads(text)
@@ -2310,14 +2299,10 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("LLM_API_KEY"), base_url=os.getenv("LLM_BASE_URL"))
 with open(os.getenv("MG_PROMPT_FILE")) as f:
     prompt = json.load(f)
-resp = client.chat.completions.create(
-    model=os.getenv("MG_MODEL", "gpt-4o-mini"),
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0.1,
-    max_tokens=1000,
-    response_format={"type": "json_object"},
-    extra_body={"enable_thinking": False}
-)
+kwargs = dict(model=os.getenv("MG_MODEL", "gpt-4o-mini"), messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=1000, response_format={"type": "json_object"})
+if "dashscope" in (os.getenv("LLM_BASE_URL") or ""):
+    kwargs["extra_body"] = {"enable_thinking": False}
+resp = client.chat.completions.create(**kwargs)
 text = resp.choices[0].message.content.strip()
 try:
     data = json.loads(text)

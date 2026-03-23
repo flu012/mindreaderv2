@@ -326,7 +326,7 @@ verify_neo4j() {
 
     # Fallback: try via Node.js (only if neo4j-driver is installed)
     if [[ "$ok" == "false" ]] && command -v node &>/dev/null; then
-        local neo4j_mod="$SCRIPT_DIR/../node_modules/neo4j-driver"
+        local neo4j_mod="$REPO_ROOT/node_modules/neo4j-driver"
         if [[ -d "$neo4j_mod" ]]; then
             if node --input-type=module -e "
 import neo4j from 'neo4j-driver';
@@ -354,10 +354,11 @@ verify_llm() {
     fi
 
     local test_output
-    test_output="$(python3 -c "
+    test_output="$(LLM_API_KEY="$LLM_API_KEY" LLM_BASE_URL="$LLM_BASE_URL" LLM_MODEL="$LLM_MODEL" python3 -c "
+import os
 from openai import OpenAI
-c = OpenAI(api_key='${LLM_API_KEY}', base_url='${LLM_BASE_URL}')
-r = c.chat.completions.create(model='${LLM_MODEL}', messages=[{'role':'user','content':'Hi'}], max_tokens=5)
+c = OpenAI(api_key=os.environ['LLM_API_KEY'], base_url=os.environ['LLM_BASE_URL'])
+r = c.chat.completions.create(model=os.environ['LLM_MODEL'], messages=[{'role':'user','content':'Hi'}], max_tokens=5)
 print('OK:', r.choices[0].message.content)
 " 2>&1)" && {
         success "LLM API verified: $test_output"

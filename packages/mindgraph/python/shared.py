@@ -83,7 +83,7 @@ def validate_env():
         print("Copy .env.example to .env and configure your settings.", file=sys.stderr)
         sys.exit(1)
 
-    dim = os.getenv("EMBEDDER_DIM", "1024")
+    dim = os.getenv("EMBEDDER_DIM", "1536")
     try:
         int(dim)
     except ValueError:
@@ -111,7 +111,7 @@ def make_graphiti():
             api_key=os.getenv("EMBEDDER_API_KEY"),
             base_url=os.getenv("EMBEDDER_BASE_URL"),
             embedding_model=os.getenv("EMBEDDER_MODEL"),
-            embedding_dim=int(os.getenv("EMBEDDER_DIM", "1024")),
+            embedding_dim=int(os.getenv("EMBEDDER_DIM", "1536")),
         )
     )
 
