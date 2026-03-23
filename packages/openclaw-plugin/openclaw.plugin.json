@@ -1,0 +1,107 @@
+{
+  "id": "mindreader",
+  "kind": "memory",
+  "name": "MindReader — Knowledge Graph Memory",
+  "description": "Knowledge graph memory with auto-recall, auto-capture, and interactive graph explorer.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "neo4jUri": {
+        "type": "string",
+        "description": "Neo4j bolt URI",
+        "default": "bolt://localhost:7687"
+      },
+      "neo4jUser": {
+        "type": "string",
+        "description": "Neo4j username",
+        "default": "neo4j"
+      },
+      "neo4jPassword": {
+        "type": "string",
+        "description": "Neo4j password"
+      },
+      "llmApiKey": {
+        "type": "string",
+        "description": "LLM API key (Aliyun DashScope or OpenAI compatible)",
+        "default": ""
+      },
+      "llmBaseUrl": {
+        "type": "string",
+        "description": "LLM base URL",
+        "default": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "llmModel": {
+        "type": "string",
+        "description": "LLM model for entity extraction",
+        "default": "qwen3.5-plus"
+      },
+      "embedderApiKey": {
+        "type": "string",
+        "description": "Embedder API key (Aliyun DashScope)",
+        "default": ""
+      },
+      "embedderBaseUrl": {
+        "type": "string",
+        "description": "Embedder base URL",
+        "default": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "embedderModel": {
+        "type": "string",
+        "description": "Embedder model",
+        "default": "text-embedding-v3"
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "description": "Auto-capture facts from conversations",
+        "default": true
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "description": "Auto-recall relevant memories before agent starts",
+        "default": true
+      },
+      "recallLimit": {
+        "type": "number",
+        "description": "Max memories to recall",
+        "minimum": 1,
+        "maximum": 20,
+        "default": 5
+      },
+      "captureMaxChars": {
+        "type": "number",
+        "description": "Max message length for auto-capture",
+        "minimum": 50,
+        "maximum": 10000,
+        "default": 2000
+      },
+      "uiPort": {
+        "type": "number",
+        "description": "Web UI port",
+        "default": 18900
+      },
+      "uiEnabled": {
+        "type": "boolean",
+        "description": "Start Web UI automatically",
+        "default": true
+      },
+      "seqUrl": {
+        "type": "string",
+        "description": "Seq server URL for structured logging",
+        "default": ""
+      },
+      "seqApiKey": {
+        "type": "string",
+        "description": "Seq API key for ingestion",
+        "default": ""
+      }
+    }
+  },
+  "uiHints": {
+    "neo4jPassword": { "label": "Neo4j Password", "sensitive": true },
+    "llmApiKey": { "label": "LLM API Key", "sensitive": true },
+    "embedderApiKey": { "label": "Embedder API Key", "sensitive": true },
+    "uiPort": { "label": "Web UI Port", "help": "Access the graph viewer at http://localhost:<port>" }
+  }
+}

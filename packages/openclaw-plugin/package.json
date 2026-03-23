@@ -1,0 +1,12 @@
+{
+  "name": "@mindreader/openclaw-plugin",
+  "version": "0.4.0",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@mindreader/ui": "*"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"]
+  }
+}
