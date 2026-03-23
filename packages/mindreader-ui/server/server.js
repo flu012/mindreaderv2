@@ -118,6 +118,7 @@ export function createServer(config, logger) {
           summary: n.summary || "",
           labels: n._labels || ["Entity"],
           category: categorizeNode(n),
+          tags: Array.isArray(n.tags) ? n.tags : [],
           node_type: n.node_type || "normal",
           created_at: n.created_at,
         };
@@ -200,6 +201,57 @@ export function createServer(config, logger) {
       });
 
       res.json({ entity, relationships });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/entity/:name — Update entity tags and/or category
+   */
+  app.put("/api/entity/:name", async (req, res) => {
+    try {
+      const { name } = req.params;
+      const { tags, category } = req.body || {};
+
+      if (tags === undefined && category === undefined) {
+        return res.status(400).json({ error: "Provide 'tags' and/or 'category' to update" });
+      }
+
+      // Build SET clause dynamically
+      const setClauses = [];
+      const params = { name };
+
+      if (tags !== undefined) {
+        if (!Array.isArray(tags)) {
+          return res.status(400).json({ error: "'tags' must be an array of strings" });
+        }
+        const normalized = [...new Set(tags.filter(t => typeof t === "string" && t.trim()).map(t => t.toLowerCase().trim()))].sort();
+        setClauses.push("e.tags = $tags");
+        params.tags = normalized;
+      }
+
+      if (category !== undefined) {
+        if (typeof category !== "string") {
+          return res.status(400).json({ error: "'category' must be a string" });
+        }
+        setClauses.push("e.category = $category");
+        params.category = category;
+      }
+
+      const result = await query(driver,
+        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+         SET ${setClauses.join(", ")}
+         RETURN e`,
+        params
+      );
+
+      if (!result.length) {
+        return res.status(404).json({ error: "Entity not found" });
+      }
+
+      const entity = result[0].e ? nodeToPlain(result[0].e) : result[0];
+      res.json({ entity });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
