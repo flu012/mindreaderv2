@@ -2,10 +2,10 @@
   "name": "@mindreader/ui",
   "version": "0.4.0",
   "type": "module",
-  "main": "server/server.js",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "concurrently \"node server/server.js\" \"npm run dev --prefix ui\"",
+    "start": "node server/index.js",
+    "dev": "concurrently \"node server/index.js\" \"npm run dev --prefix ui\"",
     "build": "npm run build --prefix ui"
   },
   "dependencies": {
