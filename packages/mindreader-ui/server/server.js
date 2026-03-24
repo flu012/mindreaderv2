@@ -388,6 +388,251 @@ print(resp.choices[0].message.content.strip())
     }
   });
 
+  // ========================================================================
+  // Node Evolve — SSE streaming endpoint
+  // ========================================================================
+
+  /**
+   * POST /api/entity/:name/evolve — Evolve an entity via LLM with web search
+   * Streams discovered entities/relationships as SSE events.
+   * Request body: { focusQuestion?: string }
+   */
+  app.post("/api/entity/:name/evolve", async (req, res) => {
+    // SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const sendSSE = (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let aborted = false;
+    let streamController = null;
+    req.on("close", () => {
+      aborted = true;
+      if (streamController) {
+        try { streamController.abort(); } catch {}
+      }
+    });
+
+    try {
+      const { name } = req.params;
+      const { focusQuestion } = req.body || {};
+
+      // Fetch entity + connections (same pattern as /summarize)
+      const results = await query(driver,
+        `MATCH (start:Entity)
+         WHERE toLower(start.name) = toLower($name)
+         OPTIONAL MATCH (start)-[r:RELATES_TO]-(other:Entity)
+         WHERE r.expired_at IS NULL
+         WITH start,
+              collect(DISTINCT {name: other.name, summary: other.summary, category: COALESCE(other.group_id, other.category, '')}) AS connected,
+              collect(DISTINCT {relation: r.name, fact: r.fact, otherName: other.name}) AS relFacts
+         RETURN start, connected[0..30] AS connected, relFacts[0..50] AS relFacts`,
+        { name }
+      );
+
+      if (!results.length) {
+        sendSSE("error", { message: "Entity not found" });
+        return res.end();
+      }
+
+      const startNode = results[0].start?.properties || {};
+      const connected = results[0].connected || [];
+      const relFacts = results[0].relFacts || [];
+
+      // Build prompt
+      const entityInfo = [
+        `Name: ${startNode.name || name}`,
+        `Category: ${startNode.group_id || startNode.category || "unknown"}`,
+        startNode.summary ? `Summary: ${startNode.summary}` : null,
+        startNode.tags?.length ? `Tags: ${startNode.tags.join(", ")}` : null,
+      ].filter(Boolean).join("\n");
+
+      const connectionsInfo = relFacts.map(r =>
+        `- ${r.fact || `${startNode.name} [${r.relation}] ${r.otherName}`}`
+      ).join("\n") || "None";
+
+      const connectedEntities = connected.slice(0, 20).map(n =>
+        `- ${n.name} (${n.category}): ${(n.summary || "").slice(0, 100)}`
+      ).join("\n") || "None";
+
+      const taskSection = focusQuestion
+        ? `Research focus: ${focusQuestion}`
+        : "Research this entity broadly. Discover important facts, related people, organizations, events, locations, and other entities.";
+
+      const llmPrompt = `You are a knowledge graph researcher. Your task is to research an entity and discover new related entities and relationships.
+
+## Target Entity
+${entityInfo}
+
+## Known Connections
+${connectionsInfo}
+
+## Connected Entities
+${connectedEntities}
+
+## Task
+${taskSection}
+
+Search the web for current information about this entity. Then output your discoveries in this exact format:
+
+For each new entity you discover, output on its own line:
+[ENTITY] {"name": "Entity Name", "category": "person|organization|project|location|event|concept|tool|other", "summary": "One sentence description", "tags": ["tag1", "tag2"]}
+
+For each relationship between entities, output on its own line:
+[REL] {"source": "Source Entity", "target": "Target Entity", "label": "short_label", "fact": "Describes the relationship in a full sentence"}
+
+The "source" is the entity performing the action, "target" is the entity being acted upon.
+
+You may include reasoning text between these lines. Aim for 3-10 entities and their relationships. Do not rediscover entities that are already in the Known Connections section. Entity names should be proper nouns or specific names, not generic descriptions.`;
+
+      // Call LLM with streaming via openai npm package
+      const OpenAI = (await import("openai")).default;
+      const client = new OpenAI({
+        apiKey: config.llmApiKey,
+        baseURL: config.llmBaseUrl,
+      });
+
+      const evolveModel = config.llmEvolveModel || config.llmModel;
+      const createParams = {
+        model: evolveModel,
+        messages: [{ role: "user", content: llmPrompt }],
+        temperature: 0.5,
+        max_tokens: 2000,
+        stream: true,
+      };
+
+      // Dashscope/Qwen workaround
+      if (config.llmBaseUrl && config.llmBaseUrl.includes("dashscope")) {
+        createParams.extra_body = { enable_thinking: false };
+      }
+
+      const abortCtrl = new AbortController();
+      streamController = abortCtrl;
+
+      const stream = await client.chat.completions.create(createParams, {
+        signal: abortCtrl.signal,
+      });
+
+      // Streaming parser state
+      let lineBuffer = "";
+      let entityCount = 0;
+      let relationshipCount = 0;
+      let totalUsage = null;
+
+      for await (const chunk of stream) {
+        if (aborted) break;
+
+        // Capture usage from final chunk if available
+        if (chunk.usage) {
+          totalUsage = {
+            promptTokens: chunk.usage.prompt_tokens || 0,
+            completionTokens: chunk.usage.completion_tokens || 0,
+            totalTokens: chunk.usage.total_tokens || 0,
+          };
+        }
+
+        const text = chunk.choices?.[0]?.delta?.content || "";
+        if (!text) continue;
+
+        // Send raw text for live display
+        sendSSE("token", { text });
+
+        // Buffer and parse line-by-line
+        lineBuffer += text;
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop(); // keep incomplete last line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+
+          if (trimmed.startsWith("[ENTITY]")) {
+            try {
+              const json = trimmed.slice("[ENTITY]".length).trim();
+              const entity = JSON.parse(json);
+              entityCount++;
+              sendSSE("entity", entity);
+            } catch { /* malformed — already sent as token text */ }
+          } else if (trimmed.startsWith("[REL]")) {
+            try {
+              const json = trimmed.slice("[REL]".length).trim();
+              const rel = JSON.parse(json);
+              relationshipCount++;
+              sendSSE("relationship", rel);
+            } catch { /* malformed — already sent as token text */ }
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (lineBuffer.trim()) {
+        const trimmed = lineBuffer.trim();
+        if (trimmed.startsWith("[ENTITY]")) {
+          try {
+            const json = trimmed.slice("[ENTITY]".length).trim();
+            const entity = JSON.parse(json);
+            entityCount++;
+            sendSSE("entity", entity);
+          } catch {}
+        } else if (trimmed.startsWith("[REL]")) {
+          try {
+            const json = trimmed.slice("[REL]".length).trim();
+            const rel = JSON.parse(json);
+            relationshipCount++;
+            sendSSE("relationship", rel);
+          } catch {}
+        }
+      }
+
+      // Log token usage
+      if (totalUsage) {
+        try {
+          await query(driver,
+            `CREATE (t:TokenUsage {
+               date: date(),
+               model: $model,
+               promptTokens: $promptTokens,
+               completionTokens: $completionTokens,
+               totalTokens: $totalTokens,
+               operation: "evolve",
+               timestamp: datetime()
+             })`,
+            {
+              model: evolveModel,
+              promptTokens: neo4j.int(totalUsage.promptTokens),
+              completionTokens: neo4j.int(totalUsage.completionTokens),
+              totalTokens: neo4j.int(totalUsage.totalTokens),
+            }
+          );
+        } catch (tokenErr) {
+          logger?.warn?.(`Failed to log evolve token usage: ${tokenErr.message}`);
+        }
+      }
+
+      // Send done event
+      sendSSE("done", {
+        totalTokens: totalUsage?.totalTokens || 0,
+        promptTokens: totalUsage?.promptTokens || 0,
+        completionTokens: totalUsage?.completionTokens || 0,
+        entityCount,
+        relationshipCount,
+      });
+
+      res.end();
+    } catch (err) {
+      if (!aborted) {
+        logger?.error?.(`Node evolve error: ${err.message}`);
+        try { sendSSE("error", { message: err.message }); } catch {}
+      }
+      res.end();
+    }
+  });
+
   /**
    * POST /api/merge — Merge two entities (transfer all relationships, delete source)
    */
