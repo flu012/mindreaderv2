@@ -634,6 +634,114 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
   });
 
   /**
+   * POST /api/entity/:name/evolve/save — Save evolved entities and relationships
+   * Request body: { entities: [...], relationships: [...] }
+   */
+  app.post("/api/entity/:name/evolve/save", async (req, res) => {
+    try {
+      const { name: targetName } = req.params;
+      const { entities = [], relationships = [] } = req.body;
+
+      if (!entities.length && !relationships.length) {
+        return res.status(400).json({ error: "No entities or relationships to save" });
+      }
+
+      let entitiesCreated = 0;
+      let entitiesSkipped = 0;
+      const skippedNames = [];
+
+      // Create entities
+      for (const ent of entities) {
+        if (!ent.name) continue;
+
+        // Check if already exists (case-insensitive)
+        const existing = await query(driver,
+          `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) RETURN e.name AS name LIMIT 1`,
+          { name: ent.name }
+        );
+
+        if (existing.length > 0) {
+          entitiesSkipped++;
+          skippedNames.push(ent.name);
+          continue;
+        }
+
+        // Append source tags
+        const tags = [
+          ...(Array.isArray(ent.tags) ? ent.tags : []),
+          "source:evolve",
+          `evolved-from:${targetName.toLowerCase()}`,
+        ];
+        const normalizedTags = [...new Set(tags.map(t => t.toLowerCase().trim()))].sort();
+
+        await query(driver,
+          `CREATE (e:Entity {
+             name: $name,
+             summary: $summary,
+             group_id: $category,
+             tags: $tags,
+             created_at: datetime(),
+             uuid: randomUUID()
+           })`,
+          {
+            name: ent.name,
+            summary: ent.summary || "",
+            category: ent.category || "",
+            tags: normalizedTags,
+          }
+        );
+        entitiesCreated++;
+      }
+
+      // Create relationships
+      let relationshipsCreated = 0;
+      for (const rel of relationships) {
+        if (!rel.source || !rel.target || !rel.fact) continue;
+
+        // Both source and target must exist in the graph
+        const endpoints = await query(driver,
+          `OPTIONAL MATCH (s:Entity) WHERE toLower(s.name) = toLower($source)
+           OPTIONAL MATCH (t:Entity) WHERE toLower(t.name) = toLower($target)
+           RETURN s IS NOT NULL AS sourceExists, t IS NOT NULL AS targetExists`,
+          { source: rel.source, target: rel.target }
+        );
+
+        if (!endpoints.length || !endpoints[0].sourceExists || !endpoints[0].targetExists) {
+          continue;
+        }
+
+        await query(driver,
+          `MATCH (s:Entity) WHERE toLower(s.name) = toLower($source)
+           MATCH (t:Entity) WHERE toLower(t.name) = toLower($target)
+           CREATE (s)-[:RELATES_TO {
+             name: $label,
+             fact: $fact,
+             created_at: datetime(),
+             uuid: randomUUID()
+           }]->(t)`,
+          {
+            source: rel.source,
+            target: rel.target,
+            label: rel.label || "related_to",
+            fact: rel.fact,
+          }
+        );
+        relationshipsCreated++;
+      }
+
+      res.json({
+        entitiesCreated,
+        entitiesSkipped,
+        relationshipsCreated,
+        skippedNames,
+      });
+    } catch (err) {
+      logger?.error?.(`Node evolve save error: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
    * POST /api/merge — Merge two entities (transfer all relationships, delete source)
    */
   app.post("/api/merge", async (req, res) => {
