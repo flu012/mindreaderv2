@@ -37,6 +37,14 @@
         "description": "LLM model for entity extraction",
         "default": "gpt-4o-mini"
       },
+      "llmExtractModel": {
+        "type": "string",
+        "description": "LLM model for extraction (overrides llmModel for extract tasks)"
+      },
+      "llmEvolveModel": {
+        "type": "string",
+        "description": "LLM model for node evolve (web search capable model recommended, e.g. qwen3.5-flash)"
+      },
       "embedderApiKey": {
         "type": "string",
         "description": "Embedder API key",
@@ -95,6 +103,10 @@
         "type": "string",
         "description": "Seq API key for ingestion",
         "default": ""
+      },
+      "apiToken": {
+        "type": "string",
+        "description": "Bearer token for authenticating API requests"
       }
     }
   },
@@ -102,6 +114,7 @@
     "neo4jPassword": { "label": "Neo4j Password", "sensitive": true },
     "llmApiKey": { "label": "LLM API Key", "sensitive": true },
     "embedderApiKey": { "label": "Embedder API Key", "sensitive": true },
+    "apiToken": { "label": "API Token", "sensitive": true },
     "uiPort": { "label": "Web UI Port", "help": "Access the graph viewer at http://localhost:<port>" }
   }
 }

@@ -29,8 +29,10 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
+  const [hoveredNode, setHoveredNode] = useState(null); // { name, category, summary, tags, x, y }
 
   const abortRef = useRef(null);
+  const saveTimerRef = useRef(null);
   const feedRef = useRef(null);
   const graphContainerRef = useRef(null);
   const sigmaRef = useRef(null);
@@ -42,6 +44,14 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [feedItems]);
+
+  // Cleanup save timer and abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
 
   // Initialize mini-graph
   useEffect(() => {
@@ -58,6 +68,9 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       size: 14,
       color: "#4affff",
       type: "circle",
+      _category: "target",
+      _summary: "",
+      _tags: [],
     });
 
     const sigma = new Sigma(graph, graphContainerRef.current, {
@@ -71,6 +84,23 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       allowInvalidContainer: true,
     });
     sigmaRef.current = sigma;
+
+    // Hover events for tooltip
+    sigma.on("enterNode", ({ node }) => {
+      const attrs = graph.getNodeAttributes(node);
+      const viewportPos = sigma.graphToViewport({ x: attrs.x, y: attrs.y });
+      setHoveredNode({
+        name: node,
+        category: attrs._category || "",
+        summary: attrs._summary || "",
+        tags: attrs._tags || [],
+        x: viewportPos.x,
+        y: viewportPos.y,
+      });
+    });
+    sigma.on("leaveNode", () => {
+      setHoveredNode(null);
+    });
 
     return () => {
       sigma.kill();
@@ -130,9 +160,12 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       y: Math.sin(angle) * radius,
       size: 8,
       color: getCategoryColor(ent.category),
+      _category: ent.category || "",
+      _summary: ent.summary || "",
+      _tags: ent.tags || [],
     });
     applyLayout();
-  }, [applyLayout, entityName]);
+  }, [applyLayout]);
 
   // Add relationship to mini-graph
   const addRelToGraph = useCallback((rel) => {
@@ -322,7 +355,8 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       setSaveResult(result);
 
       // Close after brief delay to show result
-      setTimeout(() => {
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
         if (onSaved) onSaved(result);
         onClose();
       }, 1500);
@@ -353,8 +387,47 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
         {/* Main content */}
         <div className="evolve-modal-body">
           {/* Left: Mini-graph */}
-          <div className="evolve-modal-graph">
+          <div className="evolve-modal-graph" style={{ position: "relative" }}>
             <div ref={graphContainerRef} style={{ width: "100%", height: "100%" }} />
+            {hoveredNode && (
+              <div style={{
+                position: "absolute",
+                left: hoveredNode.x + 12,
+                top: hoveredNode.y - 10,
+                background: "rgba(20, 22, 30, 0.95)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                maxWidth: 260,
+                pointerEvents: "none",
+                zIndex: 50,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+              }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: "#fff", marginBottom: 4 }}>
+                  {hoveredNode.name}
+                </div>
+                {hoveredNode.category && (
+                  <div style={{ fontSize: 10, color: getCategoryColor(hoveredNode.category), marginBottom: 3 }}>
+                    {hoveredNode.category}
+                  </div>
+                )}
+                {hoveredNode.summary && (
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", lineHeight: 1.4, marginBottom: 3 }}>
+                    {hoveredNode.summary.length > 150 ? hoveredNode.summary.slice(0, 150) + "..." : hoveredNode.summary}
+                  </div>
+                )}
+                {hoveredNode.tags?.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 2 }}>
+                    {hoveredNode.tags.slice(0, 5).map(tag => (
+                      <span key={tag} style={{
+                        fontSize: 9, padding: "1px 6px", borderRadius: 8,
+                        background: "rgba(74,158,255,0.15)", color: "rgba(74,158,255,0.8)",
+                      }}>{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right: Stream feed + cards */}

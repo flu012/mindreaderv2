@@ -475,7 +475,7 @@ print(resp.choices[0].message.content.strip())
         ? `Research focus: ${sanitizedFocus}`
         : "Research this entity broadly. Discover important facts, related people, organizations, events, locations, and other entities.";
 
-      const llmPrompt = `You are a knowledge graph researcher. Your task is to research an entity and discover new related entities and relationships.
+      const llmPrompt = `You are a thorough knowledge graph researcher. Your task is to deeply research an entity and discover as many new related entities and relationships as possible. Be comprehensive — explore multiple dimensions: people, organizations, events, locations, technologies, concepts, and projects connected to this entity.
 
 ## Target Entity
 ${entityInfo}
@@ -499,7 +499,7 @@ For each relationship between entities, output on its own line:
 
 The "source" is the entity performing the action, "target" is the entity being acted upon.
 
-You may include reasoning text between these lines. Aim for 3-10 entities and their relationships. Do not rediscover entities that are already in the Known Connections section. Entity names should be proper nouns or specific names, not generic descriptions.`;
+You may include reasoning text between these lines. Aim for 10-25 entities and their relationships — be thorough and comprehensive. Go beyond the obvious: find related people, organizations, events, locations, projects, tools, and concepts. For each entity, also consider its own important connections. Do not rediscover entities that are already in the Known Connections section. Entity names should be proper nouns or specific names, not generic descriptions.`;
 
       // Call LLM with streaming via REST fetch
       const evolveModel = config.llmEvolveModel || config.llmModel;
@@ -510,11 +510,12 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
         model: evolveModel,
         messages: [{ role: "user", content: llmPrompt }],
         temperature: 0.5,
-        max_tokens: 2000,
+        max_tokens: 8000,
         stream: true,
       };
       if (isDashscope) {
         requestBody.enable_thinking = false;
+        requestBody.enable_search = true;
       } else {
         requestBody.stream_options = { include_usage: true };
       }
@@ -524,9 +525,10 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       const abortCtrl = new AbortController();
       streamController = abortCtrl;
 
-      // Use https module for reliable streaming (Node.js native fetch can buffer SSE)
-      const { request: httpsRequest } = await import("node:https");
+      // Use http/https module for reliable streaming (Node.js native fetch can buffer SSE)
       const streamUrl = new URL(`${baseUrl}/chat/completions`);
+      const isHttps = streamUrl.protocol === "https:";
+      const { request: httpRequest } = await import(isHttps ? "node:https" : "node:http");
       const postData = JSON.stringify(requestBody);
 
       // Streaming parser state
@@ -539,9 +541,9 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       let dataLineCount = 0;
 
       await new Promise((resolveStream, rejectStream) => {
-        const httpReq = httpsRequest({
+        const httpReq = httpRequest({
           hostname: streamUrl.hostname,
-          port: streamUrl.port || 443,
+          port: streamUrl.port || (isHttps ? 443 : 80),
           path: streamUrl.pathname,
           method: "POST",
           headers: {
@@ -613,7 +615,29 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
         });
 
         llmResponse.on("end", () => {
-          // Process remaining buffer
+          // Flush remaining sseBuffer (last chunk may not end with \n)
+          if (sseBuffer.trim()) {
+            const trimmedSse = sseBuffer.trim();
+            if (trimmedSse.startsWith("data: ") && trimmedSse !== "data: [DONE]") {
+              try {
+                const chunk = JSON.parse(trimmedSse.slice(6));
+                const text = chunk.choices?.[0]?.delta?.content || "";
+                if (text) {
+                  sendSSE("token", { text });
+                  lineBuffer += text;
+                }
+                if (chunk.usage) {
+                  totalUsage = {
+                    promptTokens: chunk.usage.prompt_tokens || 0,
+                    completionTokens: chunk.usage.completion_tokens || 0,
+                    totalTokens: chunk.usage.total_tokens || 0,
+                  };
+                }
+              } catch {}
+            }
+            sseBuffer = "";
+          }
+          // Process remaining lineBuffer for [ENTITY]/[REL]
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim();
             if (trimmed.startsWith("[ENTITY]")) {
@@ -674,7 +698,8 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       console.error(`[evolve] Error:`, err);
       if (!aborted) {
         logger?.error?.(`Node evolve error: ${err.message}`);
-        try { sendSSE("error", { message: err.message }); } catch {}
+        const safeMsg = (err.message || "Unknown error").replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").replace(/sk-[a-zA-Z0-9]+/g, "sk-[REDACTED]").slice(0, 200);
+        try { sendSSE("error", { message: safeMsg }); } catch {}
       }
       res.end();
     }
@@ -689,92 +714,104 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       const { name: targetName } = req.params;
       const { entities = [], relationships = [] } = req.body;
 
+      if (!Array.isArray(entities) || !Array.isArray(relationships)) {
+        return res.status(400).json({ error: "entities and relationships must be arrays" });
+      }
       if (!entities.length && !relationships.length) {
         return res.status(400).json({ error: "No entities or relationships to save" });
       }
-
-      let entitiesCreated = 0;
-      let entitiesSkipped = 0;
-      const skippedNames = [];
-
-      // Create entities
+      if (entities.length > 100) {
+        return res.status(400).json({ error: "Too many entities (max 100)" });
+      }
+      if (relationships.length > 200) {
+        return res.status(400).json({ error: "Too many relationships (max 200)" });
+      }
+      // Validate entity shapes
       for (const ent of entities) {
-        if (!ent.name) continue;
-
-        // Check if already exists (case-insensitive)
-        const existing = await query(driver,
-          `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) RETURN e.name AS name LIMIT 1`,
-          { name: ent.name }
-        );
-
-        if (existing.length > 0) {
-          entitiesSkipped++;
-          skippedNames.push(ent.name);
-          continue;
+        if (typeof ent.name !== "string" || !ent.name.trim() || ent.name.length > 200) {
+          return res.status(400).json({ error: `Invalid entity name: ${String(ent.name).slice(0, 50)}` });
         }
+        if (ent.summary && (typeof ent.summary !== "string" || ent.summary.length > 2000)) {
+          return res.status(400).json({ error: `Entity summary too long for: ${ent.name.slice(0, 50)}` });
+        }
+        if (ent.tags && !Array.isArray(ent.tags)) {
+          return res.status(400).json({ error: `Entity tags must be an array for: ${ent.name.slice(0, 50)}` });
+        }
+      }
+      // Validate relationship shapes
+      for (const rel of relationships) {
+        if (typeof rel.source !== "string" || !rel.source.trim() || rel.source.length > 200) {
+          return res.status(400).json({ error: "Invalid relationship source" });
+        }
+        if (typeof rel.target !== "string" || !rel.target.trim() || rel.target.length > 200) {
+          return res.status(400).json({ error: "Invalid relationship target" });
+        }
+        if (typeof rel.fact !== "string" || !rel.fact.trim() || rel.fact.length > 2000) {
+          return res.status(400).json({ error: "Invalid or missing relationship fact" });
+        }
+      }
 
-        // Append source tags
+      // Prepare entities with normalized tags
+      const preparedEntities = entities.map(ent => {
         const tags = [
           ...(Array.isArray(ent.tags) ? ent.tags : []),
           "source:evolve",
           `evolved-from:${targetName.toLowerCase()}`,
         ];
-        const normalizedTags = [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))].sort();
+        return {
+          name: ent.name.trim(),
+          summary: (ent.summary || "").slice(0, 2000),
+          category: (ent.category || "").slice(0, 100),
+          tags: [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))].sort(),
+        };
+      });
 
-        await query(driver,
-          `CREATE (e:Entity {
-             name: $name,
-             summary: $summary,
-             group_id: $category,
-             tags: $tags,
-             created_at: datetime(),
-             uuid: randomUUID()
-           })`,
-          {
-            name: ent.name,
-            summary: ent.summary || "",
-            category: ent.category || "",
-            tags: normalizedTags,
-          }
-        );
-        entitiesCreated++;
-      }
+      // Batch create entities (skip existing, single round trip)
+      const entityResult = await query(driver,
+        `UNWIND $entities AS ent
+         OPTIONAL MATCH (existing:Entity) WHERE toLower(existing.name) = toLower(ent.name)
+         WITH ent, existing
+         WHERE existing IS NULL
+         CREATE (e:Entity {
+           name: ent.name,
+           summary: ent.summary,
+           group_id: ent.category,
+           tags: ent.tags,
+           created_at: datetime(),
+           uuid: randomUUID()
+         })
+         RETURN e.name AS created`,
+        { entities: preparedEntities }
+      );
+      const entitiesCreated = entityResult.length;
+      const createdNames = new Set(entityResult.map(r => r.created?.toLowerCase()));
+      const skippedNames = preparedEntities
+        .filter(e => !createdNames.has(e.name.toLowerCase()))
+        .map(e => e.name);
+      const entitiesSkipped = skippedNames.length;
 
-      // Create relationships
-      let relationshipsCreated = 0;
-      for (const rel of relationships) {
-        if (!rel.source || !rel.target || !rel.fact) continue;
+      // Batch create relationships (only where both endpoints exist, single round trip)
+      const preparedRels = relationships.map(rel => ({
+        source: rel.source.trim(),
+        target: rel.target.trim(),
+        label: (rel.label || "related_to").slice(0, 200),
+        fact: rel.fact.trim().slice(0, 2000),
+      }));
 
-        // Both source and target must exist in the graph
-        const endpoints = await query(driver,
-          `OPTIONAL MATCH (s:Entity) WHERE toLower(s.name) = toLower($source)
-           OPTIONAL MATCH (t:Entity) WHERE toLower(t.name) = toLower($target)
-           RETURN s IS NOT NULL AS sourceExists, t IS NOT NULL AS targetExists`,
-          { source: rel.source, target: rel.target }
-        );
-
-        if (!endpoints.length || !endpoints[0].sourceExists || !endpoints[0].targetExists) {
-          continue;
-        }
-
-        await query(driver,
-          `MATCH (s:Entity) WHERE toLower(s.name) = toLower($source)
-           MATCH (t:Entity) WHERE toLower(t.name) = toLower($target)
-           CREATE (s)-[:RELATES_TO {
-             name: $label,
-             fact: $fact,
-             created_at: datetime(),
-             uuid: randomUUID()
-           }]->(t)`,
-          {
-            source: rel.source,
-            target: rel.target,
-            label: rel.label || "related_to",
-            fact: rel.fact,
-          }
-        );
-        relationshipsCreated++;
-      }
+      const relResult = await query(driver,
+        `UNWIND $rels AS rel
+         MATCH (s:Entity) WHERE toLower(s.name) = toLower(rel.source)
+         MATCH (t:Entity) WHERE toLower(t.name) = toLower(rel.target)
+         CREATE (s)-[:RELATES_TO {
+           name: rel.label,
+           fact: rel.fact,
+           created_at: datetime(),
+           uuid: randomUUID()
+         }]->(t)
+         RETURN s.name AS src`,
+        { rels: preparedRels }
+      );
+      const relationshipsCreated = relResult.length;
 
       res.json({
         entitiesCreated,
@@ -784,7 +821,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       });
     } catch (err) {
       logger?.error?.(`Node evolve save error: ${err.message}`);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Failed to save evolved data" });
     }
   });
 
@@ -981,7 +1018,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
 
       // Get all entity categories to count
       const entityRows = await query(driver,
-        `MATCH (e:Entity) RETURN e.category AS category`
+        `MATCH (e:Entity) RETURN COALESCE(e.group_id, e.category, '') AS category`
       );
       const catKeys = new Set(freshCats.map((c) => c.key));
 
@@ -998,7 +1035,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       }
       // Also auto-categorize entities with no manual category
       const uncat = await query(driver,
-        `MATCH (e:Entity) WHERE e.category IS NULL OR NOT e.category IN $keys RETURN e.name AS name, e.summary AS summary, e.category AS category`,
+        `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.group_id, e.category, '') IN $keys RETURN e.name AS name, e.summary AS summary, COALESCE(e.group_id, e.category, '') AS category`,
         { keys: [...catKeys] }
       );
       const autoCounts = {};
@@ -1098,8 +1135,8 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       if (key === "other") {
         // Entities with no category or category not in any Category node
         const rows = await query(driver,
-          `MATCH (e:Entity) WHERE e.category IS NULL OR NOT e.category IN $keys
-           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, e.category AS category
+          `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.group_id, e.category, '') IN $keys
+           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.group_id, e.category, '') AS category
            ORDER BY e.name`,
           { keys: catKeys }
         );
@@ -1117,7 +1154,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
         // Entities with explicit category = key OR auto-categorized to key
         const rows = await query(driver,
           `MATCH (e:Entity)
-           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, e.category AS category
+           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.group_id, e.category, '') AS category
            ORDER BY e.name`
         );
         entities = rows
@@ -1275,7 +1312,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
       // Group entities by category
       const entityGroups = await query(driver,
         `MATCH (e:Entity)
-         RETURN e.name AS name, e.summary AS summary, e.category AS category
+         RETURN e.name AS name, e.summary AS summary, COALESCE(e.group_id, e.category, '') AS category
          ORDER BY e.name`
       );
 
@@ -1547,7 +1584,7 @@ except Exception:
         OPTIONAL MATCH (e)-[r:RELATES_TO]-()
         WITH e, count(r) AS relCount
         RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary,
-               e.created_at AS created_at, e.category AS category, e.node_type AS node_type, e.tags AS tags, relCount
+               e.created_at AS created_at, COALESCE(e.group_id, e.category, '') AS category, e.node_type AS node_type, e.tags AS tags, relCount
         ${orderClause}
       `;
 
@@ -1590,7 +1627,7 @@ except Exception:
         WHERE e.created_at IS NOT NULL
         WITH e ORDER BY e.created_at DESC
         RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary,
-               e.created_at AS created_at, e.category AS category, e.node_type AS node_type
+               e.created_at AS created_at, COALESCE(e.group_id, e.category, '') AS category, e.node_type AS node_type
         LIMIT 500
       `;
 
@@ -2650,7 +2687,7 @@ async function seedDefaultCategories(driver, logger) {
  * Categorize a node for color coding in the graph.
  */
 function categorizeNode(node) {
-  return categorizeEntity(node.name, node.summary, node.category);
+  return categorizeEntity(node.name, node.summary, node.group_id || node.category);
 }
 
 function categorizeEntity(name, summary, category) {

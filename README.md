@@ -2,12 +2,11 @@
 
 # MindReader V2
 
-**Give your AI a memory it can see, manage, and maintain.**
+**Give your AI a memory it can see, manage, and evolve.**
 
 [English](README.md) | [中文](README.zh.md)
 
-<!-- Replace with actual screenshot -->
-![MindReader Graph View](docs/images/graph-view.png)
+![MindReader Graph View](docs/images/mind%20graph%20view.png)
 
 </div>
 
@@ -35,11 +34,33 @@ MindReader is a **personal knowledge graph** that captures, organizes, and recal
 - **See everything** — Interactive graph visualization shows your entire memory landscape
 - **Control everything** — Edit entities, manage tags, merge duplicates, create relationships manually
 - **Self-maintaining** — LLM-powered auto-categorization, auto-tagging, relationship cleanup, and deduplication
-- **Self-evolving** — *(Coming soon)* Auto-expand knowledge by self-directed research
+- **Self-evolving** — Nodes autonomously research and expand their own knowledge via web search
 
 ---
 
 ## Features
+
+### Self-Evolution — Memory That Grows on Its Own
+
+This is what makes MindReader fundamentally different from every other AI memory system. Your knowledge graph doesn't just store what you tell it — **it actively researches and expands itself**.
+
+Select any node and hit **Evolve**. MindReader sends the entity to a web-search-capable LLM that:
+
+1. **Researches** the entity using live web search — finding up-to-date facts, connections, and context
+2. **Discovers new entities** — people, organizations, projects, concepts related to the original node
+3. **Maps relationships** — automatically creates typed connections (works_at, developed_by, part_of, etc.)
+4. **Streams results live** — watch new nodes and edges appear in real-time on an interactive graph
+5. **Saves to your graph** — review the discoveries, then save them directly into your knowledge base
+
+The evolve graph shows existing nodes (blue) alongside newly discovered entities (color-coded by category), letting you see exactly what the LLM found before committing anything.
+
+https://github.com/user-attachments/assets/4a93cef0-e48e-464d-a70c-1759d16c5de2
+
+> *A single evolve pass typically discovers 10-25 new entities and their relationships, turning a lonely node into a rich knowledge cluster.*
+
+This means your memory graph becomes **compounding** — each evolve pass creates new nodes that can themselves be evolved, building an ever-expanding web of knowledge without you having to manually input anything.
+
+---
 
 ### Visual Knowledge Graph
 
@@ -48,27 +69,27 @@ Explore your memories as an interactive force-directed graph. Nodes represent en
 - Zoom, pan, click to explore
 - Nodes sized by connection count — important entities are larger
 - Color-coded by category (person, project, company, etc.)
-- Hover for quick preview with tags and summary
+- Hover for quick preview with category, tags, and summary
 - Filter by category to focus on what matters
 
-<!-- Replace with actual screenshot -->
-![Graph Visualization](docs/images/graph-hover.png)
+![Graph Visualization](docs/images/mind%20graph%20view.png)
 
 ### Entity Management
 
-Click any entity to open the detail panel. Full control over your memories:
+Click any entity to open the detail panel with full control over your memories:
 
 - **Tags** — Add descriptive tags (auto-extracted by LLM, manually editable)
 - **Categories** — 12 built-in categories, fully customizable
-- **Summary** — Click-to-edit summaries
-- **AI Explanation** — Generate a 200-word analysis of any entity and its connections
-- **Relationships** — Browse incoming/outgoing connections, navigate between entities
-- **Merge** — Combine duplicate entities, preserving all relationships
+- **Summary** — Click-to-edit summaries with AI-generated explanations
+- **Evolve** — Research and expand any node's knowledge via web search
 - **Link** — Manually create relationships between entities
+- **Merge** — Combine duplicate entities, preserving all relationships
 - **Delete** — Remove with impact preview (shows affected relationships)
 
-<!-- Replace with actual screenshot -->
-![Detail Panel](docs/images/detail-panel.png)
+<p align="center">
+<img src="docs/images/manual%20link%20memory.png" width="300" alt="Link entities">
+<img src="docs/images/manual%20merge%20memory.png" width="300" alt="Merge entities">
+</p>
 
 ### Smart Search
 
@@ -85,10 +106,17 @@ Search across entity names, summaries, and tags from a single search bar (Ctrl+K
 | **List** | Browse and search entities with pagination, filter by category |
 | **Timeline** | See memories organized chronologically (Today, Yesterday, This Week, Earlier) |
 | **Graph** | Interactive visual exploration of entities and relationships |
-| **Categories** | Browse and manage entity categories |
+| **Categories** | Browse and manage entity categories with per-category counts |
 | **Activity** | Audit log of captured and recalled memories |
 | **Tokens** | Track LLM API usage and costs |
 | **Maintenance** | Cleanup tools, relationship repair, batch re-categorization |
+
+<p align="center">
+<img src="docs/images/node%20list%20view.png" width="400" alt="List View">
+<img src="docs/images/node%20creatioon%20timeline.png" width="400" alt="Timeline View">
+</p>
+
+![Categories View](docs/images/node%20categorisation%20view.png)
 
 ### Auto-Maintenance
 
@@ -96,15 +124,14 @@ MindReader doesn't just store memories — it keeps them clean.
 
 | Feature | How It Works |
 |---|---|
-| **Auto-Categorization** | LLM classifies new entities every 60 seconds |
+| **Auto-Categorization** | LLM classifies uncategorized entities using name, summary, and tags |
 | **Auto-Tagging** | Extracts descriptive tags (roles, skills, locations, relationships) in the same LLM call |
+| **Batch Re-categorization** | Process uncategorized entities in configurable batches with one click |
 | **Duplicate Detection** | Scans for entities with similar names and properties |
 | **Relationship Repair** | Detects reversed, misspelled, and vague relationships (rule-based + LLM) |
 | **Orphan Cleanup** | Finds and removes disconnected entities |
-| **Expired Edge Cleanup** | Removes relationships that have been invalidated |
 
-<!-- Replace with actual screenshot -->
-![Maintenance Hub](docs/images/maintenance.png)
+![Maintenance Hub](docs/images/memory%20automastically%20clean%20up.png)
 
 ### CLI Tool
 
@@ -130,14 +157,6 @@ MindReader integrates with AI agent frameworks (OpenClaw) to provide automatic m
 - **Auto-capture** — Facts extracted from agent conversations and stored automatically
 - **Tools** — Agents can search, store, and list memories via tool calls
 
-### Self-Evolution *(Coming Soon)*
-
-The next frontier: MindReader will proactively expand its knowledge by:
-
-- Identifying knowledge gaps in the graph
-- Researching to fill those gaps autonomously
-- Building richer, more connected memory over time
-
 ---
 
 ## Quick Start
@@ -162,6 +181,7 @@ Open `http://localhost:18900` to access the web UI.
 - Python 3.11+
 - Neo4j 5.x (Docker setup included, or bring your own)
 - An LLM API key (OpenAI, Anthropic via proxy, or DashScope)
+- For self-evolution: a web-search-capable model (e.g. Qwen qwen3.5-plus via DashScope)
 
 ## Architecture
 
@@ -184,19 +204,27 @@ Conversations ──> Capture ──> Neo4j Knowledge Graph ──> Recall ─�
               Entity extraction    Auto-categorize           Semantic search
               Fact extraction      Auto-tag                  Entity profiles
               Dedup detection      Relationship repair       Structured JSON
+                                         │
+                                         ▼
+                                   Self-Evolution
+                                   (web search LLM discovers
+                                    new entities & relationships)
 ```
 
 1. **Capture** — Conversations are processed into entities and relationships, stored in Neo4j
 2. **Organize** — LLM auto-categorizes, auto-tags, and maintains the graph continuously
-3. **Recall** — Semantic search retrieves relevant memories with full entity context
+3. **Evolve** — Any node can be expanded via web-search-powered research, discovering new entities and connections
+4. **Recall** — Semantic search retrieves relevant memories with full entity context
 
 ## LLM Providers
 
-| Provider | Status | Default Model |
-|---|---|---|
-| OpenAI | Supported | `gpt-4o-mini` |
-| DashScope (Alibaba) | Supported | `qwen3.5-flash` |
-| Anthropic | Supported (via proxy) | Requires OpenAI-compatible proxy (e.g. LiteLLM) |
+| Provider | Status | Default Model | Web Search |
+|---|---|---|---|
+| OpenAI | Supported | `gpt-4o-mini` | No |
+| DashScope (Alibaba) | Supported | `qwen3.5-flash` | Yes (built-in) |
+| Anthropic | Supported (via proxy) | Requires OpenAI-compatible proxy | Depends on proxy |
+
+> For the self-evolve feature, a model with built-in web search (like DashScope's Qwen models) produces significantly richer results.
 
 ## Configuration
 

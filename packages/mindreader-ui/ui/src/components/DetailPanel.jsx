@@ -91,8 +91,79 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
       <button className="close-btn" onClick={onClose}>✕</button>
 
       <h2>{entity.name}</h2>
-      <CategorySelector entityName={entity.name} currentCategory={entity.category || entity.group_id} onRefresh={onEntityUpdate || onRefresh} />
-      <NodeTypeSelector entityName={entity.name} currentNodeType={entity.node_type || "normal"} onRefresh={onEntityUpdate || onRefresh} />
+
+      {/* Category + Node Type on same line */}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 4 }}>
+        <CategorySelector entityName={entity.name} currentCategory={entity.category || entity.group_id} onRefresh={onEntityUpdate || onRefresh} />
+        <NodeTypeSelector entityName={entity.name} currentNodeType={entity.node_type || "normal"} onRefresh={onEntityUpdate || onRefresh} />
+      </div>
+
+      {/* Action toolbar — 2 buttons per row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+        <button
+          onClick={() => setShowEvolve(true)}
+          disabled={showEvolve}
+          style={{
+            padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+            cursor: showEvolve ? "not-allowed" : "pointer", transition: "all 0.2s",
+            background: "linear-gradient(135deg, rgba(74, 255, 255, 0.12), rgba(74, 255, 158, 0.12))",
+            border: "1px solid rgba(74, 255, 255, 0.25)",
+            color: "var(--accent-cyan)",
+            opacity: showEvolve ? 0.5 : 1,
+          }}
+        >✨ Evolve</button>
+        <button
+          onClick={() => setActiveAction(activeAction === "link" ? null : "link")}
+          style={{
+            padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+            cursor: "pointer", transition: "all 0.2s",
+            background: activeAction === "link" ? "rgba(74,255,120,0.15)" : "transparent",
+            border: `1px solid ${activeAction === "link" ? "rgba(74,255,120,0.4)" : "rgba(255,255,255,0.1)"}`,
+            color: activeAction === "link" ? "#66dd88" : "var(--text-secondary)",
+          }}
+        >🔗 Link</button>
+        <button
+          onClick={() => setActiveAction(activeAction === "merge" ? null : "merge")}
+          style={{
+            padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+            cursor: "pointer", transition: "all 0.2s",
+            background: activeAction === "merge" ? "rgba(255,165,0,0.15)" : "transparent",
+            border: `1px solid ${activeAction === "merge" ? "rgba(255,165,0,0.4)" : "rgba(255,255,255,0.1)"}`,
+            color: activeAction === "merge" ? "#ffaa44" : "var(--text-secondary)",
+          }}
+        >🔀 Merge</button>
+        <button
+          onClick={() => setActiveAction(activeAction === "delete" ? null : "delete")}
+          style={{
+            padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+            cursor: "pointer", transition: "all 0.2s",
+            background: activeAction === "delete" ? "rgba(255,74,74,0.15)" : "transparent",
+            border: `1px solid ${activeAction === "delete" ? "rgba(255,74,74,0.4)" : "rgba(255,255,255,0.1)"}`,
+            color: activeAction === "delete" ? "#ff4a4a" : "var(--text-secondary)",
+          }}
+        >🗑️ Delete</button>
+      </div>
+
+      {activeAction === "delete" && (
+        <DeletePanel
+          entityName={entity.name}
+          onDone={() => { setActiveAction(null); if (onDeleteNode) onDeleteNode(entity.name); onClose(); }}
+          onCancel={() => setActiveAction(null)}
+        />
+      )}
+
+      {activeAction && activeAction !== "delete" && (
+        <ActionPanel
+          mode={activeAction}
+          entityName={entity.name}
+          onDone={(result) => {
+            setActiveAction(null);
+            if (onRefresh) onRefresh();
+            if (result?.kept && onNavigate) onNavigate(result.kept);
+          }}
+          onCancel={() => setActiveAction(null)}
+        />
+      )}
 
       <TagEditor tags={entity.tags || []} entityName={entity.name} onTagsChanged={onEntityUpdate || onRefresh} />
 
@@ -149,73 +220,6 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
       )}
 
       <EntityActivityHistory entityName={entity.name} />
-
-      {/* Merge / Link actions */}
-      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-        <button
-          onClick={() => setShowEvolve(true)}
-          disabled={showEvolve}
-          style={{
-            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-            cursor: showEvolve ? "not-allowed" : "pointer", transition: "all 0.2s",
-            background: "linear-gradient(135deg, rgba(74, 255, 255, 0.12), rgba(74, 255, 158, 0.12))",
-            border: "1px solid rgba(74, 255, 255, 0.25)",
-            color: "var(--accent-cyan)",
-            opacity: showEvolve ? 0.5 : 1,
-          }}
-        >Evolve</button>
-        <button
-          onClick={() => setActiveAction(activeAction === "link" ? null : "link")}
-          style={{
-            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-            cursor: "pointer", transition: "all 0.2s",
-            background: activeAction === "link" ? "rgba(74,255,120,0.15)" : "transparent",
-            border: `1px solid ${activeAction === "link" ? "rgba(74,255,120,0.4)" : "rgba(255,255,255,0.1)"}`,
-            color: activeAction === "link" ? "#66dd88" : "var(--text-secondary)",
-          }}
-        >🔗 Link to...</button>
-        <button
-          onClick={() => setActiveAction(activeAction === "merge" ? null : "merge")}
-          style={{
-            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-            cursor: "pointer", transition: "all 0.2s",
-            background: activeAction === "merge" ? "rgba(255,165,0,0.15)" : "transparent",
-            border: `1px solid ${activeAction === "merge" ? "rgba(255,165,0,0.4)" : "rgba(255,255,255,0.1)"}`,
-            color: activeAction === "merge" ? "#ffaa44" : "var(--text-secondary)",
-          }}
-        >🔀 Merge with...</button>
-        <button
-          onClick={() => setActiveAction(activeAction === "delete" ? null : "delete")}
-          style={{
-            padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-            cursor: "pointer", transition: "all 0.2s",
-            background: activeAction === "delete" ? "rgba(255,74,74,0.15)" : "transparent",
-            border: `1px solid ${activeAction === "delete" ? "rgba(255,74,74,0.4)" : "rgba(255,255,255,0.1)"}`,
-            color: activeAction === "delete" ? "#ff4a4a" : "var(--text-secondary)",
-          }}
-        >🗑️</button>
-      </div>
-
-      {activeAction === "delete" && (
-        <DeletePanel
-          entityName={entity.name}
-          onDone={() => { setActiveAction(null); if (onDeleteNode) onDeleteNode(entity.name); onClose(); }}
-          onCancel={() => setActiveAction(null)}
-        />
-      )}
-
-      {activeAction && activeAction !== "delete" && (
-        <ActionPanel
-          mode={activeAction}
-          entityName={entity.name}
-          onDone={(result) => {
-            setActiveAction(null);
-            if (onRefresh) onRefresh();
-            if (result?.kept && onNavigate) onNavigate(result.kept);
-          }}
-          onCancel={() => setActiveAction(null)}
-        />
-      )}
 
       {showEvolve && (
         <EvolveModal
@@ -723,7 +727,7 @@ function CategorySelector({ entityName, currentCategory, onRefresh }) {
   const current = categoryEntries.find(g => g.key === (currentCategory || "")) || categoryEntries[0];
 
   return (
-    <div ref={dropdownRef} style={{ position: "relative", marginBottom: 10 }}>
+    <div ref={dropdownRef} style={{ position: "relative" }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -810,7 +814,7 @@ function NodeTypeSelector({ entityName, currentNodeType, onRefresh }) {
   const typeColor = currentNodeType === "credential" ? "#ff9e4a" : currentNodeType === "archived" ? "#8888aa" : "#4a9eff";
 
   return (
-    <div ref={dropdownRef} style={{ position: "relative", marginBottom: 10, display: "inline-block" }}>
+    <div ref={dropdownRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
