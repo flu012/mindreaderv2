@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { EntityActivityHistory } from "./ActivityLog";
 import { CATEGORY_COLORS, CATEGORY_LABELS, NODE_TYPES } from "../constants";
+import EvolveModal from "./EvolveModal";
 
 function TagEditor({ tags, entityName, onTagsChanged }) {
   const [adding, setAdding] = useState(false);
@@ -72,6 +73,13 @@ function TagEditor({ tags, entityName, onTagsChanged }) {
 
 export default function DetailPanel({ entity, relationships, onClose, onNavigate, groupColors, categoryColors, onRefresh, onEntityUpdate, onDeleteNode }) {
   const [activeAction, setActiveAction] = useState(null); // null | "merge" | "link"
+  const [showEvolve, setShowEvolve] = useState(false);
+
+  // Reset evolve modal when entity changes
+  useEffect(() => {
+    setShowEvolve(false);
+    setActiveAction(null);
+  }, [entity?.name]);
 
   if (!entity) return null;
 
@@ -145,6 +153,16 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
       {/* Merge / Link actions */}
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
         <button
+          onClick={() => setShowEvolve(true)}
+          style={{
+            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+            cursor: "pointer", transition: "all 0.2s",
+            background: "linear-gradient(135deg, rgba(74, 255, 255, 0.12), rgba(74, 255, 158, 0.12))",
+            border: "1px solid rgba(74, 255, 255, 0.25)",
+            color: "var(--accent-cyan)",
+          }}
+        >Evolve</button>
+        <button
           onClick={() => setActiveAction(activeAction === "link" ? null : "link")}
           style={{
             flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
@@ -194,6 +212,17 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
             if (result?.kept && onNavigate) onNavigate(result.kept);
           }}
           onCancel={() => setActiveAction(null)}
+        />
+      )}
+
+      {showEvolve && (
+        <EvolveModal
+          entityName={entity.name}
+          onClose={() => setShowEvolve(false)}
+          onSaved={() => {
+            setShowEvolve(false);
+            if (onRefresh) onRefresh();
+          }}
         />
       )}
     </div>
