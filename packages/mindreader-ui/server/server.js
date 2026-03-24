@@ -439,7 +439,7 @@ print(resp.choices[0].message.content.strip())
          OPTIONAL MATCH (start)-[r:RELATES_TO]-(other:Entity)
          WHERE r.expired_at IS NULL
          WITH start,
-              collect(DISTINCT {name: other.name, summary: other.summary, category: COALESCE(other.group_id, other.category, '')}) AS connected,
+              collect(DISTINCT {name: other.name, summary: other.summary, category: COALESCE(other.category, other.group_id, '')}) AS connected,
               collect(DISTINCT {relation: r.name, fact: r.fact, otherName: other.name}) AS relFacts
          RETURN start, connected[0..30] AS connected, relFacts[0..50] AS relFacts`,
         { name }
@@ -457,7 +457,7 @@ print(resp.choices[0].message.content.strip())
       // Build prompt
       const entityInfo = [
         `Name: ${startNode.name || name}`,
-        `Category: ${startNode.group_id || startNode.category || "unknown"}`,
+        `Category: ${startNode.category || startNode.group_id || "unknown"}`,
         startNode.summary ? `Summary: ${startNode.summary}` : null,
         startNode.tags?.length ? `Tags: ${startNode.tags.join(", ")}` : null,
       ].filter(Boolean).join("\n");
@@ -1018,7 +1018,7 @@ You may include reasoning text between these lines. Aim for 10-25 entities and t
 
       // Get all entity categories to count
       const entityRows = await query(driver,
-        `MATCH (e:Entity) RETURN COALESCE(e.group_id, e.category, '') AS category`
+        `MATCH (e:Entity) RETURN COALESCE(e.category, e.group_id, '') AS category`
       );
       const catKeys = new Set(freshCats.map((c) => c.key));
 
@@ -1035,7 +1035,7 @@ You may include reasoning text between these lines. Aim for 10-25 entities and t
       }
       // Also auto-categorize entities with no manual category
       const uncat = await query(driver,
-        `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.group_id, e.category, '') IN $keys RETURN e.name AS name, e.summary AS summary, COALESCE(e.group_id, e.category, '') AS category`,
+        `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys RETURN e.name AS name, e.summary AS summary, COALESCE(e.category, e.group_id, '') AS category`,
         { keys: [...catKeys] }
       );
       const autoCounts = {};
@@ -1135,8 +1135,8 @@ You may include reasoning text between these lines. Aim for 10-25 entities and t
       if (key === "other") {
         // Entities with no category or category not in any Category node
         const rows = await query(driver,
-          `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.group_id, e.category, '') IN $keys
-           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.group_id, e.category, '') AS category
+          `MATCH (e:Entity) WHERE (e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys
+           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.category, e.group_id, '') AS category
            ORDER BY e.name`,
           { keys: catKeys }
         );
@@ -1154,7 +1154,7 @@ You may include reasoning text between these lines. Aim for 10-25 entities and t
         // Entities with explicit category = key OR auto-categorized to key
         const rows = await query(driver,
           `MATCH (e:Entity)
-           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.group_id, e.category, '') AS category
+           RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.category, e.group_id, '') AS category
            ORDER BY e.name`
         );
         entities = rows
@@ -1312,7 +1312,7 @@ You may include reasoning text between these lines. Aim for 10-25 entities and t
       // Group entities by category
       const entityGroups = await query(driver,
         `MATCH (e:Entity)
-         RETURN e.name AS name, e.summary AS summary, COALESCE(e.group_id, e.category, '') AS category
+         RETURN e.name AS name, e.summary AS summary, COALESCE(e.category, e.group_id, '') AS category
          ORDER BY e.name`
       );
 
@@ -1584,7 +1584,7 @@ except Exception:
         OPTIONAL MATCH (e)-[r:RELATES_TO]-()
         WITH e, count(r) AS relCount
         RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary,
-               e.created_at AS created_at, COALESCE(e.group_id, e.category, '') AS category, e.node_type AS node_type, e.tags AS tags, relCount
+               e.created_at AS created_at, COALESCE(e.category, e.group_id, '') AS category, e.node_type AS node_type, e.tags AS tags, relCount
         ${orderClause}
       `;
 
@@ -1627,7 +1627,7 @@ except Exception:
         WHERE e.created_at IS NOT NULL
         WITH e ORDER BY e.created_at DESC
         RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary,
-               e.created_at AS created_at, COALESCE(e.group_id, e.category, '') AS category, e.node_type AS node_type
+               e.created_at AS created_at, COALESCE(e.category, e.group_id, '') AS category, e.node_type AS node_type
         LIMIT 500
       `;
 
@@ -2682,7 +2682,8 @@ async function seedDefaultCategories(driver, logger) {
  * Categorize a node for color coding in the graph.
  */
 function categorizeNode(node) {
-  return categorizeEntity(node.name, node.summary, node.group_id || node.category);
+  // Prefer category (updated by auto-categorizer/manual edits) over group_id (legacy Graphiti field)
+  return categorizeEntity(node.name, node.summary, node.category || node.group_id);
 }
 
 function categorizeEntity(name, summary, category) {

@@ -1,10 +1,10 @@
 # MindReader Test Results
 
-**Run:** 2026-03-24 21:56:55  
+**Run:** 2026-03-24 22:18:07  
 **Server:** localhost:18999  
 **Neo4j:** bolt://localhost:7688  
 **Total:** 43 tests — 42 passed, 0 failed, 1 skipped  
-**Total Time:** 62143.7ms  
+**Total Time:** 62688.1ms  
 
 > All tests passed.
 
@@ -12,109 +12,109 @@
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/graph | 59.2ms |  |
-| PASS | GET /api/graph?limit=5 | 18.2ms |  |
+| PASS | GET /api/graph | 64.6ms |  |
+| PASS | GET /api/graph?limit=5 | 21.3ms |  |
 
 ## Entity
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/entity/:name (found) | 11.6ms |  |
-| PASS | GET /api/entity/:name (not found) | 6.0ms |  |
-| PASS | PUT /api/entity/:name (update tags) | 223.4ms |  |
-| PASS | PUT /api/entity/:name (update category) | 8.1ms |  |
-| PASS | PUT /api/entity/:name/summary | 27.4ms |  |
-| PASS | GET /api/entity/:name/delete-preview | 11.4ms |  |
-| PASS | DELETE /api/entity/:name | 25.7ms |  |
+| PASS | GET /api/entity/:name (found) | 15.2ms |  |
+| PASS | GET /api/entity/:name (not found) | 8.8ms |  |
+| PASS | PUT /api/entity/:name (update tags) | 240.1ms |  |
+| PASS | PUT /api/entity/:name (update category) | 7.0ms |  |
+| PASS | PUT /api/entity/:name/summary | 21.7ms |  |
+| PASS | GET /api/entity/:name/delete-preview | 14.0ms |  |
+| PASS | DELETE /api/entity/:name | 26.6ms |  |
 
 ## Search
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/entities | 14.9ms |  |
-| PASS | GET /api/entities?q=<query> | 7.4ms |  |
-| PASS | GET /api/entities?sort=created_at&order=desc | 12.3ms |  |
-| PASS | GET /api/search | 10.7ms |  |
-| PASS | GET /api/timeline | 12.7ms |  |
+| PASS | GET /api/entities | 142.6ms |  |
+| PASS | GET /api/entities?q=<query> | 128.0ms |  |
+| PASS | GET /api/entities?sort=created_at&order=desc | 13.0ms |  |
+| PASS | GET /api/search | 11.7ms |  |
+| PASS | GET /api/timeline | 45.5ms |  |
 
 ## Link
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | POST /api/link | 25.0ms |  |
-| PASS | POST /api/link (missing fields) | 1.7ms |  |
+| PASS | POST /api/link | 19.2ms |  |
+| PASS | POST /api/link (missing fields) | 1.3ms |  |
 
 ## Merge
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | POST /api/merge | 38.7ms |  |
-| PASS | POST /api/merge (missing fields) | 1.6ms |  |
+| PASS | POST /api/merge | 38.8ms |  |
+| PASS | POST /api/merge (missing fields) | 2.3ms |  |
 
 ## Categories
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/categories | 15.8ms |  |
-| PASS | POST /api/categories (create) | 11.0ms |  |
-| PASS | PUT /api/categories/:key | 6.9ms |  |
-| PASS | GET /api/categories/:key/entities | 14.5ms |  |
-| PASS | DELETE /api/categories/:key | 10.2ms |  |
+| PASS | GET /api/categories | 77.8ms |  |
+| PASS | POST /api/categories (create) | 11.1ms |  |
+| PASS | PUT /api/categories/:key | 10.7ms |  |
+| PASS | GET /api/categories/:key/entities | 40.1ms |  |
+| PASS | DELETE /api/categories/:key | 8.9ms |  |
 
 ## Stats
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/stats | 14.9ms |  |
-| PASS | GET /api/projects | 7.8ms |  |
-| PASS | GET /api/tokens | 7.1ms |  |
+| PASS | GET /api/stats | 40.8ms |  |
+| PASS | GET /api/projects | 8.0ms |  |
+| PASS | GET /api/tokens | 7.9ms |  |
 
 ## Cleanup
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/cleanup/scan | 62.1ms |  |
-| PASS | POST /api/cleanup/execute (empty actions = 400) | 2.4ms |  |
-| PASS | POST /api/cleanup/execute (dry run) | 7.9ms |  |
+| PASS | GET /api/cleanup/scan | 60.1ms |  |
+| PASS | POST /api/cleanup/execute (empty actions = 400) | 2.6ms |  |
+| PASS | POST /api/cleanup/execute (dry run) | 9.2ms |  |
 
 ## Relationships
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/relationships/scan | 143.3ms |  |
+| PASS | GET /api/relationships/scan | 21.3ms |  |
 
 ## Audit
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/audit | 10.9ms |  |
-| PASS | GET /api/audit/node/:name | 6.9ms |  |
+| PASS | GET /api/audit | 10.6ms |  |
+| PASS | GET /api/audit/node/:name | 7.6ms |  |
 
 ## Query
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | POST /api/query (read-only) | 9.7ms |  |
-| PASS | POST /api/query (write blocked = 403) | 1.4ms |  |
+| PASS | POST /api/query (read-only) | 9.5ms |  |
+| PASS | POST /api/query (write blocked = 403) | 1.5ms |  |
 
 ## CLI API
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/cli/search | 19385.0ms |  |
-| PASS | GET /api/cli/entities | 11453.6ms |  |
-| PASS | POST /api/cli/recall | 2.7ms |  |
-| PASS | POST /api/cli/capture | 1.9ms |  |
+| PASS | GET /api/cli/search | 19175.1ms |  |
+| PASS | GET /api/cli/entities | 11475.2ms |  |
+| PASS | POST /api/cli/recall | 2.6ms |  |
+| PASS | POST /api/cli/capture | 1.7ms |  |
 | SKIP | POST /api/cli/store | -ms | Requires Python graphiti_core |
 
 ## LLM
 
 | Status | Test | Time | Error |
 |--------|------|------|-------|
-| PASS | GET /api/entity/:name/summarize | 16415.0ms |  |
-| PASS | POST /api/recategorize (batch) | 13990.1ms |  |
-| PASS | POST /api/entity/:name/evolve (SSE) | 4.0ms |  |
-| PASS | POST /api/entity/:name/evolve/save | 42.6ms |  |
+| PASS | GET /api/entity/:name/summarize | 16637.9ms |  |
+| PASS | POST /api/recategorize (batch) | 14199.7ms |  |
+| PASS | POST /api/entity/:name/evolve (SSE) | 4.8ms |  |
+| PASS | POST /api/entity/:name/evolve/save | 41.7ms |  |
 
 ---
 *Generated by `scripts/test-api.mjs`*
