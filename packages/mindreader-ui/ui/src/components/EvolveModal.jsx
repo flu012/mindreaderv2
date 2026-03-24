@@ -188,15 +188,6 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       const entityChecks = new Set();
       const relChecks = new Set();
       const items = [];
-      let pendingText = "";
-
-      const flushText = () => {
-        if (pendingText.trim()) {
-          items.push({ type: "text", data: pendingText });
-          setFeedItems([...items]);
-        }
-        pendingText = "";
-      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -217,7 +208,6 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
 
           switch (event) {
             case "token":
-              pendingText += data.text;
               // Update the last text item in real-time for smooth streaming
               if (items.length > 0 && items[items.length - 1].type === "text") {
                 items[items.length - 1].data += data.text;
@@ -227,7 +217,6 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
               setFeedItems([...items]);
               break;
             case "entity": {
-              flushText();
               const idx = discoveredEntities.length;
               discoveredEntities.push(data);
               entityChecks.add(idx);
@@ -239,7 +228,6 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
               break;
             }
             case "relationship": {
-              flushText();
               const idx = discoveredRels.length;
               discoveredRels.push(data);
               relChecks.add(idx);

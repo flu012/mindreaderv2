@@ -461,8 +461,9 @@ print(resp.choices[0].message.content.strip())
         `- ${n.name} (${n.category}): ${(n.summary || "").slice(0, 100)}`
       ).join("\n") || "None";
 
-      const taskSection = focusQuestion
-        ? `Research focus: ${focusQuestion}`
+      const sanitizedFocus = (focusQuestion || "").slice(0, 500);
+      const taskSection = sanitizedFocus
+        ? `Research focus: ${sanitizedFocus}`
         : "Research this entity broadly. Discover important facts, related people, organizations, events, locations, and other entities.";
 
       const llmPrompt = `You are a knowledge graph researcher. Your task is to research an entity and discover new related entities and relationships.
@@ -505,6 +506,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
         temperature: 0.5,
         max_tokens: 2000,
         stream: true,
+        stream_options: { include_usage: true },
       };
 
       // Dashscope/Qwen workaround
@@ -672,7 +674,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
           "source:evolve",
           `evolved-from:${targetName.toLowerCase()}`,
         ];
-        const normalizedTags = [...new Set(tags.map(t => t.toLowerCase().trim()))].sort();
+        const normalizedTags = [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))].sort();
 
         await query(driver,
           `CREATE (e:Entity {

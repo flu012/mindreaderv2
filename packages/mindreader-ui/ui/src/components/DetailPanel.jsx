@@ -154,12 +154,14 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
       <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
         <button
           onClick={() => setShowEvolve(true)}
+          disabled={showEvolve}
           style={{
             flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-            cursor: "pointer", transition: "all 0.2s",
+            cursor: showEvolve ? "not-allowed" : "pointer", transition: "all 0.2s",
             background: "linear-gradient(135deg, rgba(74, 255, 255, 0.12), rgba(74, 255, 158, 0.12))",
             border: "1px solid rgba(74, 255, 255, 0.25)",
             color: "var(--accent-cyan)",
+            opacity: showEvolve ? 0.5 : 1,
           }}
         >Evolve</button>
         <button
