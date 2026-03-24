@@ -261,6 +261,12 @@ step_llm() {
     info "Default model for ${LLM_PROVIDER}: ${LLM_DEFAULT_MODEL}"
     LLM_MODEL="$(ask "LLM model (press Enter to keep default)" "${LLM_MODEL:-$LLM_DEFAULT_MODEL}")"
     LLM_API_KEY="$(ask_secret "API key for ${LLM_PROVIDER}")"
+
+    # Node Evolve model (optional)
+    echo
+    info "Node Evolve uses a separate model with web search capability."
+    info "Leave blank to use the same model as LLM_MODEL (${LLM_MODEL})."
+    LLM_EVOLVE_MODEL="$(ask "Evolve model (blank = same as LLM)" "")"
     echo
 
     # Embedder
@@ -557,6 +563,7 @@ LLM_PROVIDER=${LLM_PROVIDER}
 LLM_BASE_URL=${LLM_BASE_URL}
 LLM_MODEL=${LLM_MODEL}
 LLM_API_KEY=${LLM_API_KEY}
+LLM_EVOLVE_MODEL=${LLM_EVOLVE_MODEL}
 
 # ── Embedder ─────────────────────────────────────────────────────────────────
 EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER}

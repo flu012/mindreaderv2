@@ -45,6 +45,7 @@ export function loadConfig(overrides = {}) {
     llmApiKey: overrides.llmApiKey || process.env.LLM_API_KEY || "",
     llmModel: overrides.llmModel || process.env.LLM_MODEL || llmPreset.defaultModel || "gpt-4o-mini",
     llmExtractModel: overrides.llmExtractModel || process.env.LLM_EXTRACT_MODEL || overrides.llmModel || process.env.LLM_MODEL || llmPreset.defaultModel || "gpt-4o-mini",
+    llmEvolveModel: overrides.llmEvolveModel || process.env.LLM_EVOLVE_MODEL || overrides.llmModel || process.env.LLM_MODEL || llmPreset.defaultModel || "gpt-4o-mini",
     embedderBaseUrl: overrides.embedderBaseUrl || process.env.EMBEDDER_BASE_URL || embedderPreset.baseUrl || "https://api.openai.com/v1",
     embedderApiKey: overrides.embedderApiKey || process.env.EMBEDDER_API_KEY || process.env.LLM_API_KEY || "",
     embedderModel: overrides.embedderModel || process.env.EMBEDDER_MODEL || embedderPreset.defaultModel || "text-embedding-3-small",
