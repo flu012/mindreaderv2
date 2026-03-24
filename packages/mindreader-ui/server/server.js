@@ -406,16 +406,25 @@ print(resp.choices[0].message.content.strip())
       "X-Accel-Buffering": "no",
     });
 
+    res.flushHeaders();
+    // Send initial SSE comment to keep connection alive
+    res.write(": evolve stream starting\n\n");
+
     const sendSSE = (event, data) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (!res.writableEnded) {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      }
     };
 
     let aborted = false;
     let streamController = null;
     req.on("close", () => {
-      aborted = true;
-      if (streamController) {
-        try { streamController.abort(); } catch {}
+      if (!res.writableEnded) {
+        // Only treat as abort if we didn't finish normally
+        aborted = true;
+        if (streamController) {
+          try { streamController.abort(); } catch {}
+        }
       }
     });
 
@@ -492,105 +501,140 @@ The "source" is the entity performing the action, "target" is the entity being a
 
 You may include reasoning text between these lines. Aim for 3-10 entities and their relationships. Do not rediscover entities that are already in the Known Connections section. Entity names should be proper nouns or specific names, not generic descriptions.`;
 
-      // Call LLM with streaming via openai npm package
-      const OpenAI = (await import("openai")).default;
-      const client = new OpenAI({
-        apiKey: config.llmApiKey,
-        baseURL: config.llmBaseUrl,
-      });
-
+      // Call LLM with streaming via REST fetch
       const evolveModel = config.llmEvolveModel || config.llmModel;
-      const createParams = {
+      const baseUrl = (config.llmBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+      const isDashscope = baseUrl.includes("dashscope");
+
+      const requestBody = {
         model: evolveModel,
         messages: [{ role: "user", content: llmPrompt }],
         temperature: 0.5,
         max_tokens: 2000,
         stream: true,
-        stream_options: { include_usage: true },
       };
-
-      // Dashscope/Qwen workaround
-      if (config.llmBaseUrl && config.llmBaseUrl.includes("dashscope")) {
-        createParams.extra_body = { enable_thinking: false };
+      if (isDashscope) {
+        requestBody.enable_thinking = false;
+      } else {
+        requestBody.stream_options = { include_usage: true };
       }
+
+      logger?.info?.(`[evolve] Starting for "${name}" model=${evolveModel} baseURL=${baseUrl}`);
 
       const abortCtrl = new AbortController();
       streamController = abortCtrl;
 
-      const stream = await client.chat.completions.create(createParams, {
-        signal: abortCtrl.signal,
-      });
+      // Use https module for reliable streaming (Node.js native fetch can buffer SSE)
+      const { request: httpsRequest } = await import("node:https");
+      const streamUrl = new URL(`${baseUrl}/chat/completions`);
+      const postData = JSON.stringify(requestBody);
 
       // Streaming parser state
       let lineBuffer = "";
       let entityCount = 0;
       let relationshipCount = 0;
       let totalUsage = null;
+      let sseBuffer = "";
+      let rawChunkCount = 0;
+      let dataLineCount = 0;
 
-      for await (const chunk of stream) {
-        if (aborted) break;
+      await new Promise((resolveStream, rejectStream) => {
+        const httpReq = httpsRequest({
+          hostname: streamUrl.hostname,
+          port: streamUrl.port || 443,
+          path: streamUrl.pathname,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${config.llmApiKey}`,
+            "Content-Length": Buffer.byteLength(postData),
+          },
+        }, (llmResponse) => {
+          logger?.info?.(`[evolve] LLM response status: ${llmResponse.statusCode}`);
 
-        // Capture usage from final chunk if available
-        if (chunk.usage) {
-          totalUsage = {
-            promptTokens: chunk.usage.prompt_tokens || 0,
-            completionTokens: chunk.usage.completion_tokens || 0,
-            totalTokens: chunk.usage.total_tokens || 0,
-          };
-        }
-
-        const text = chunk.choices?.[0]?.delta?.content || "";
-        if (!text) continue;
-
-        // Send raw text for live display
-        sendSSE("token", { text });
-
-        // Buffer and parse line-by-line
-        lineBuffer += text;
-        const lines = lineBuffer.split("\n");
-        lineBuffer = lines.pop(); // keep incomplete last line in buffer
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-
-          if (trimmed.startsWith("[ENTITY]")) {
-            try {
-              const json = trimmed.slice("[ENTITY]".length).trim();
-              const entity = JSON.parse(json);
-              entityCount++;
-              sendSSE("entity", entity);
-            } catch { /* malformed — already sent as token text */ }
-          } else if (trimmed.startsWith("[REL]")) {
-            try {
-              const json = trimmed.slice("[REL]".length).trim();
-              const rel = JSON.parse(json);
-              relationshipCount++;
-              sendSSE("relationship", rel);
-            } catch { /* malformed — already sent as token text */ }
+          if (llmResponse.statusCode !== 200) {
+            let errBody = "";
+            llmResponse.on("data", (c) => { errBody += c; });
+            llmResponse.on("end", () => rejectStream(new Error(`LLM API returned ${llmResponse.statusCode}: ${errBody.slice(0, 200)}`)));
+            return;
           }
-        }
-      }
 
-      // Process any remaining buffer
-      if (lineBuffer.trim()) {
-        const trimmed = lineBuffer.trim();
-        if (trimmed.startsWith("[ENTITY]")) {
-          try {
-            const json = trimmed.slice("[ENTITY]".length).trim();
-            const entity = JSON.parse(json);
-            entityCount++;
-            sendSSE("entity", entity);
-          } catch {}
-        } else if (trimmed.startsWith("[REL]")) {
-          try {
-            const json = trimmed.slice("[REL]".length).trim();
-            const rel = JSON.parse(json);
-            relationshipCount++;
-            sendSSE("relationship", rel);
-          } catch {}
-        }
-      }
+          llmResponse.on("data", (rawBuf) => {
+          const rawText = rawBuf.toString();
+          rawChunkCount++;
 
+          sseBuffer += rawText;
+          const sseMessages = sseBuffer.split("\n");
+          sseBuffer = sseMessages.pop();
+
+          for (const line of sseMessages) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === "data: [DONE]") continue;
+            if (!trimmedLine.startsWith("data: ")) continue;
+            dataLineCount++;
+
+            let chunk;
+            try { chunk = JSON.parse(trimmedLine.slice(6)); } catch { continue; }
+
+            if (chunk.usage) {
+              totalUsage = {
+                promptTokens: chunk.usage.prompt_tokens || 0,
+                completionTokens: chunk.usage.completion_tokens || 0,
+                totalTokens: chunk.usage.total_tokens || 0,
+              };
+            }
+
+            const text = chunk.choices?.[0]?.delta?.content || "";
+            if (!text) continue;
+
+            sendSSE("token", { text });
+
+            lineBuffer += text;
+            const lines = lineBuffer.split("\n");
+            lineBuffer = lines.pop();
+
+            for (const ln of lines) {
+              const trimmed = ln.trim();
+              if (trimmed.startsWith("[ENTITY]")) {
+                try {
+                  const entity = JSON.parse(trimmed.slice("[ENTITY]".length).trim());
+                  entityCount++;
+                  sendSSE("entity", entity);
+                } catch {}
+              } else if (trimmed.startsWith("[REL]")) {
+                try {
+                  const rel = JSON.parse(trimmed.slice("[REL]".length).trim());
+                  relationshipCount++;
+                  sendSSE("relationship", rel);
+                } catch {}
+              }
+            }
+          }
+        });
+
+        llmResponse.on("end", () => {
+          // Process remaining buffer
+          if (lineBuffer.trim()) {
+            const trimmed = lineBuffer.trim();
+            if (trimmed.startsWith("[ENTITY]")) {
+              try { const e = JSON.parse(trimmed.slice("[ENTITY]".length).trim()); entityCount++; sendSSE("entity", e); } catch {}
+            } else if (trimmed.startsWith("[REL]")) {
+              try { const r = JSON.parse(trimmed.slice("[REL]".length).trim()); relationshipCount++; sendSSE("relationship", r); } catch {}
+            }
+          }
+          resolveStream();
+        });
+
+          llmResponse.on("error", rejectStream);
+        });
+
+        httpReq.on("error", rejectStream);
+        abortCtrl.signal.addEventListener("abort", () => httpReq.destroy());
+        httpReq.write(postData);
+        httpReq.end();
+      });
+
+      logger?.info?.(`[evolve] Stream complete. entities: ${entityCount}, rels: ${relationshipCount}`);
       // Log token usage
       if (totalUsage) {
         try {
@@ -627,6 +671,7 @@ You may include reasoning text between these lines. Aim for 3-10 entities and th
 
       res.end();
     } catch (err) {
+      console.error(`[evolve] Error:`, err);
       if (!aborted) {
         logger?.error?.(`Node evolve error: ${err.message}`);
         try { sendSSE("error", { message: err.message }); } catch {}

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import Graph from "graphology";
 import Sigma from "sigma";
 import { CATEGORY_COLORS } from "../constants";
@@ -335,7 +336,7 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
   const totalItems = entities.length + relationships.length;
   const allChecked = totalChecked === totalItems;
 
-  return (
+  return createPortal(
     <div className="evolve-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && phase !== "streaming") onClose(); }}>
       <div className="evolve-modal">
         {/* Header */}
@@ -508,6 +509,7 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

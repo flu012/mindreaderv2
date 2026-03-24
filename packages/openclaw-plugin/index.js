@@ -31,6 +31,7 @@ function bridgeConfig(openClawConfig) {
     llmBaseUrl: raw.llmBaseUrl,
     llmModel: raw.llmModel,
     llmExtractModel: raw.llmExtractModel,
+    llmEvolveModel: raw.llmEvolveModel,
     embedderApiKey: raw.embedderApiKey,
     embedderBaseUrl: raw.embedderBaseUrl,
     embedderModel: raw.embedderModel,
