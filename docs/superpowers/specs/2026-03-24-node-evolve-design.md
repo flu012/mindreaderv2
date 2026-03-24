@@ -134,7 +134,7 @@ CREATE (t:TokenUsage {
     { "name": "...", "category": "...", "summary": "...", "tags": ["..."] }
   ],
   "relationships": [
-    { "source": "...", "target": "...", "fact": "..." }
+    { "source": "...", "target": "...", "label": "short_label", "fact": "..." }
   ]
 }
 ```
