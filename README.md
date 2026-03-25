@@ -203,29 +203,55 @@ mindreaderv2/
   packages/
     mindgraph/         # Python core - Graphiti memory engine, CLI, background worker
     mindreader-ui/     # Express server + React UI - visualization & management
+      server/
+        server.js      # App assembly (~150 lines)
+        routes/        # 8 route modules (graph, entity, categories, search, cleanup, audit, tokens, cli)
+        lib/           # Shared utilities (daemon, categorizer, LLM client, preprocessor)
+      ui/              # React frontend
     openclaw-plugin/   # Optional AI agent integration - auto-recall/capture
 ```
 
 ### How It Works
 
 ```
-Conversations ──> Capture ──> Neo4j Knowledge Graph ──> Recall ──> AI Context
-                    │                    │                           │
-                    ▼                    ▼                           ▼
-              Entity extraction    Auto-categorize           Semantic search
-              Fact extraction      Auto-tag                  Entity profiles
-              Dedup detection      Relationship repair       Structured JSON
-                                         │
-                                         ▼
-                                   Self-Evolution
-                                   (web search LLM discovers
-                                    new entities & relationships)
+Conversations ──> Capture ──> Preprocessor ──> Neo4j Knowledge Graph ──> Recall ──> AI Context
+                    │              │                     │                            │
+                    ▼              ▼                     ▼                            ▼
+              Filter messages  Classify facts       Auto-categorize            Semantic search
+              Extract facts    Attributes → Neo4j   Auto-tag                   Entity profiles
+              Find entities    Relationships → Graphiti  Relationship repair    Structured JSON
+                                                         │
+                                                         ▼
+                                                   Self-Evolution
+                                                   (web search LLM discovers
+                                                    new entities & relationships)
 ```
 
-1. **Capture** — Conversations are processed into entities and relationships, stored in Neo4j
-2. **Organize** — LLM auto-categorizes, auto-tags, and maintains the graph continuously
-3. **Evolve** — Any node can be expanded via web-search-powered research, discovering new entities and connections
-4. **Recall** — Semantic search retrieves relevant memories with full entity context
+1. **Capture** — Conversations are filtered, then an LLM preprocessor extracts and classifies facts before storage
+2. **Preprocess** — Each fact is classified as either an *attribute* (written directly to entity tags/summary in Neo4j) or a *relationship* (forwarded to Graphiti for graph storage). This prevents junk entities like "Developer" or "15 Years Experience" from polluting the graph.
+3. **Organize** — LLM auto-categorizes, auto-tags, and maintains the graph continuously
+4. **Evolve** — Any node can be expanded via web-search-powered research, discovering new entities and connections
+5. **Recall** — Semantic search retrieves relevant memories with full entity context
+
+### Smart Storage — Quality Over Quantity
+
+Traditional knowledge graph systems treat everything as entities. Tell it "Dell is a developer with 15 years experience" and you get three entities: "Dell", "Developer", and "15 Years Experience". The last two are attributes, not independent entities — they pollute the graph.
+
+MindReader's **preprocessing pipeline** solves this:
+
+1. **Known entity lookup** — Before classification, the preprocessor searches Neo4j for entities mentioned in the text
+2. **LLM classification** — Each fact is classified as an *attribute* (role, skill, trait, preference → direct Neo4j update) or a *relationship* (connection between entities → Graphiti)
+3. **Direct attribute writes** — Tags and summary updates are written directly to existing entity nodes, avoiding unnecessary graph traversal
+4. **Graceful degradation** — If preprocessing fails, the system falls back to Graphiti with custom extraction instructions that still prevent junk entity creation
+
+Both the manual store path (`memory_store` tool) and the auto-capture path (end-of-conversation hook) go through this pipeline. The auto-capture path additionally extracts key facts from conversation history before classification, filtering out code, debug output, and tool results.
+
+You can switch between preprocessing modes via the `PREPROCESS_MODE` environment variable:
+
+| Mode | Behavior | LLM Calls |
+|------|----------|-----------|
+| `merged` (default) | One LLM call extracts facts + classifies | 1 |
+| `two-pass` | Separate extraction and classification steps | 1 + N |
 
 ## LLM Providers
 
