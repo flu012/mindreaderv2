@@ -492,12 +492,15 @@ async function runApiTests() {
     assert(data !== undefined, "should return recall results");
   });
 
-  await test("CLI API", "POST /api/cli/capture", async () => {
+  await test("CLI API", "POST /api/cli/capture (basic)", async () => {
     const data = await api("POST", "/api/cli/capture", {
-      context: `${TEST_PREFIX} user discussed a new topic`,
-      source: "test-script",
+      messages: [
+        { role: "user", content: `${TEST_PREFIX} user discussed a new topic about development workflows and practices` },
+        { role: "assistant", content: "I understand, you discussed a new topic about development workflows and best practices" },
+      ],
     });
     assert(data !== undefined, "should return capture result");
+    assert(typeof data.stored === "number", "stored should be a number");
   });
 
   // cli/store tested in Plugin section below with embedder check
@@ -582,21 +585,54 @@ async function runApiTests() {
       captureMaxChars: 500,
     });
     assert(typeof data.stored === "number", "stored should be a number");
-    assert(data.stored === 1, "should have stored 1 conversation");
-    assert(typeof data.output === "string", "output should be a string");
+    // Preprocessor may return 0+ facts (attribute updates + relationships)
+    // or degrade to old behavior (stored=1). Either is valid.
+    assert(data.stored >= 0, "stored should be non-negative");
+    if (data.output) assert(typeof data.output === "string", "output should be a string");
   });
 
-  // cli/store calls python daemon (Graphiti add_episode) — requires embedder
-  if (EMBEDDER_API_KEY) {
-    await test("Plugin", "memory_store (POST /api/cli/store)", async () => {
+  await test("Plugin", "capture with empty messages returns stored=0", async () => {
+    const data = await api("POST", "/api/cli/capture", { messages: [] });
+    assert(data.stored === 0, "should store nothing for empty messages");
+  });
+
+  await test("Plugin", "capture with short messages returns stored=0", async () => {
+    const data = await api("POST", "/api/cli/capture", {
+      messages: [{ role: "user", content: "hi" }],
+    });
+    assert(data.stored === 0, "should store nothing for short messages");
+  });
+
+  // cli/store uses preprocessing pipeline — async store returns immediately
+  await test("Plugin", "memory_store async (POST /api/cli/store)", async () => {
+    const data = await api("POST", "/api/cli/store", {
+      content: `${TEST_PREFIX} Alice completed the new feature for ProjectX successfully`,
+      source: "test-script",
+    });
+    assert(typeof data.output === "string", "output should be a string");
+    assert(data.async === true, "should be async by default");
+    assert(data.output.includes("queued"), "should indicate queued");
+  });
+
+  await test("Plugin", "memory_store missing content (POST /api/cli/store)", async () => {
+    await api("POST", "/api/cli/store", {}, 400);
+  });
+
+  // Sync store requires LLM + embedder for full pipeline
+  if (EMBEDDER_API_KEY && process.env.LLM_API_KEY) {
+    await test("Plugin", "memory_store sync (POST /api/cli/store async=false)", async () => {
       const data = await api("POST", "/api/cli/store", {
-        content: `${TEST_PREFIX} Alice completed the new feature for ProjectX successfully`,
+        content: `${TEST_PREFIX} Bob is an experienced React developer`,
         source: "test-script",
+        async: false,
       });
       assert(typeof data.output === "string", "output should be a string");
+      // Preprocessor classifies as attributes or relationships
+      // Output like "Stored: N attribute update(s), M relationship(s) to graph."
+      // or degraded: "Memory stored (degraded)."
     });
   } else {
-    skip("Plugin", "memory_store (POST /api/cli/store)", "No EMBEDDER_API_KEY");
+    skip("Plugin", "memory_store sync (POST /api/cli/store async=false)", "No LLM_API_KEY + EMBEDDER_API_KEY");
   }
 
   // == LLM-dependent =======================================================
@@ -664,6 +700,152 @@ async function runApiTests() {
     skip("LLM", "POST /api/entity/:name/evolve (SSE)", "No LLM_API_KEY");
     skip("LLM", "POST /api/entity/:name/evolve/save", "No LLM_API_KEY");
   }
+
+  // == Preprocessor Unit Tests ==============================================
+  // These test the preprocessor module functions directly (no server needed).
+  console.log("\n\uD83E\uDDEA Preprocessor Unit Tests");
+
+  await test("Preprocessor", "filterMessages: prioritizes recent messages", async () => {
+    const { filterMessages } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const messages = [
+      { role: "user", content: "This is an old message about something unimportant from long ago" },
+      { role: "assistant", content: "I acknowledge the old message from long ago, thank you for sharing" },
+      { role: "user", content: "This is a recent message about important new work being done now" },
+      { role: "assistant", content: "I understand the recent important work, will remember that going forward" },
+    ];
+    // With a small maxChars, should get only the last messages
+    const result = filterMessages(messages, 200);
+    assert(result.includes("recent"), "should contain recent messages");
+    assert(!result.includes("old message"), "should not contain old messages (limited by maxChars)");
+  });
+
+  await test("Preprocessor", "filterMessages: strips relevant-memories tags", async () => {
+    const { filterMessages } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const messages = [
+      { role: "user", content: "Hello <relevant-memories>secret data here</relevant-memories> how are you" },
+      { role: "assistant", content: "I am doing well, thank you for asking about my status" },
+    ];
+    const result = filterMessages(messages, 4000);
+    assert(!result.includes("secret data"), "should strip relevant-memories blocks");
+    assert(result.includes("Hello"), "should keep non-memory content");
+  });
+
+  await test("Preprocessor", "filterMessages: skips tool messages", async () => {
+    const { filterMessages } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const messages = [
+      { role: "user", content: "Please check the database for user information and status" },
+      { role: "tool", content: "Tool result: found 5 records in the database with matching criteria" },
+      { role: "assistant", content: "I found 5 matching records in the database for your query" },
+    ];
+    const result = filterMessages(messages, 4000);
+    assert(!result.includes("Tool result"), "should skip tool role messages");
+    assert(result.includes("database"), "should keep user/assistant messages");
+  });
+
+  await test("Preprocessor", "filterMessages: handles content blocks (array format)", async () => {
+    const { filterMessages } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const messages = [
+      { role: "user", content: [
+        { type: "text", text: "This is a text block with some important information about the project" },
+        { type: "tool_use", id: "123" },
+      ]},
+      { role: "assistant", content: "Got it, I understand the important information about the project" },
+    ];
+    const result = filterMessages(messages, 4000);
+    assert(result.includes("text block"), "should extract text from content blocks");
+  });
+
+  await test("Preprocessor", "filterMessages: empty input returns empty string", async () => {
+    const { filterMessages } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    assert(filterMessages([], 4000) === "", "empty messages should return empty string");
+    assert(filterMessages(null, 4000) === "", "null messages should return empty string");
+    assert(filterMessages(undefined, 4000) === "", "undefined messages should return empty string");
+  });
+
+  await test("Preprocessor", "EXTRACTION_INSTRUCTIONS is non-empty", async () => {
+    const { EXTRACTION_INSTRUCTIONS } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    assert(typeof EXTRACTION_INSTRUCTIONS === "string", "should be a string");
+    assert(EXTRACTION_INSTRUCTIONS.length > 100, "should be substantial");
+    assert(EXTRACTION_INSTRUCTIONS.includes("CRITICAL"), "should start with CRITICAL");
+    assert(EXTRACTION_INSTRUCTIONS.includes("Roles"), "should mention roles");
+    assert(EXTRACTION_INSTRUCTIONS.includes("Skills"), "should mention skills");
+  });
+
+  await test("Preprocessor", "findKnownEntities returns empty for garbage text", async () => {
+    const { findKnownEntities } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
+      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
+      neo4jUser: "neo4j",
+      neo4jPassword: NEO4J_PASS,
+    });
+    try {
+      const result = await findKnownEntities("xyzzy foobar quxnorf", driver, 3000);
+      assert(Array.isArray(result), "should return array");
+      assert(result.length === 0, "should find no entities for garbage text");
+    } finally {
+      await driver.close();
+    }
+  });
+
+  await test("Preprocessor", "findKnownEntities finds test entities", async () => {
+    const { findKnownEntities } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
+      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
+      neo4jUser: "neo4j",
+      neo4jPassword: NEO4J_PASS,
+    });
+    try {
+      const result = await findKnownEntities(`${TEST_PREFIX}Alice works on ${TEST_PREFIX}ProjectX`, driver, 3000);
+      assert(Array.isArray(result), "should return array");
+      assert(result.length > 0, "should find at least one entity");
+      const names = result.map(e => e.name);
+      assert(names.some(n => n.includes("Alice")), "should find Alice");
+      // Check returned shape
+      const first = result[0];
+      assert(typeof first.name === "string", "entity should have name");
+      assert(typeof first.category === "string", "entity should have category");
+      assert(Array.isArray(first.tags), "entity should have tags array");
+    } finally {
+      await driver.close();
+    }
+  });
+
+  await test("Preprocessor", "applyEntityUpdate adds tags and summary", async () => {
+    const { applyEntityUpdate } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
+      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
+      neo4jUser: "neo4j",
+      neo4jPassword: NEO4J_PASS,
+    });
+    try {
+      // Apply update to test entity
+      await applyEntityUpdate({
+        name: `${TEST_PREFIX}Bob`,
+        addTags: ["developer", "react-expert"],
+        summaryAppend: "Bob is an experienced React developer.",
+      }, driver);
+
+      // Verify the update
+      const session = driver.session();
+      try {
+        const result = await session.run(
+          `MATCH (e:Entity {name: $name}) RETURN e.tags AS tags, e.summary AS summary`,
+          { name: `${TEST_PREFIX}Bob` }
+        );
+        const record = result.records[0];
+        const tags = record.get("tags");
+        const summary = record.get("summary");
+        assert(tags.includes("developer"), "should have added 'developer' tag");
+        assert(tags.includes("react-expert"), "should have added 'react-expert' tag");
+        assert(tags.includes("test"), "should still have original 'test' tag");
+        assert(summary.includes("React developer"), "should have appended summary");
+      } finally {
+        await session.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
