@@ -771,81 +771,64 @@ async function runApiTests() {
     assert(EXTRACTION_INSTRUCTIONS.includes("Skills"), "should mention skills");
   });
 
+  // Share a single Neo4j driver across preprocessor tests to avoid pool-closed errors
+  const ppNeo4j = await import("../packages/mindreader-ui/server/neo4j.js");
+  const ppDriver = ppNeo4j.getDriver({
+    neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
+    neo4jUser: "neo4j",
+    neo4jPassword: NEO4J_PASS,
+  });
+  const ppMod = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
+
   await test("Preprocessor", "findKnownEntities returns empty for garbage text", async () => {
-    const { findKnownEntities } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
-    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
-      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
-      neo4jUser: "neo4j",
-      neo4jPassword: NEO4J_PASS,
-    });
-    try {
-      const result = await findKnownEntities("xyzzy foobar quxnorf", driver, 3000);
-      assert(Array.isArray(result), "should return array");
-      assert(result.length === 0, "should find no entities for garbage text");
-    } finally {
-      await driver.close();
-    }
+    const result = await ppMod.findKnownEntities("xyzzy foobar quxnorf", ppDriver, 3000);
+    assert(Array.isArray(result), "should return array");
+    assert(result.length === 0, "should find no entities for garbage text");
   });
 
-  await test("Preprocessor", "findKnownEntities finds test entities", async () => {
-    const { findKnownEntities } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
-    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
-      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
-      neo4jUser: "neo4j",
-      neo4jPassword: NEO4J_PASS,
-    });
-    try {
-      const result = await findKnownEntities(`${TEST_PREFIX}Alice works on ${TEST_PREFIX}ProjectX`, driver, 3000);
-      assert(Array.isArray(result), "should return array");
-      assert(result.length > 0, "should find at least one entity");
-      const names = result.map(e => e.name);
-      assert(names.some(n => n.includes("Alice")), "should find Alice");
-      // Check returned shape
-      const first = result[0];
-      assert(typeof first.name === "string", "entity should have name");
-      assert(typeof first.category === "string", "entity should have category");
-      assert(Array.isArray(first.tags), "entity should have tags array");
-    } finally {
-      await driver.close();
-    }
+  await test("Preprocessor", "findKnownEntities finds test entities by name", async () => {
+    // Use entity names directly (not with __test__ prefix which gets split on underscores)
+    const result = await ppMod.findKnownEntities("Alice ProjectX", ppDriver, 3000);
+    assert(Array.isArray(result), "should return array");
+    assert(result.length > 0, "should find at least one entity");
+    const names = result.map(e => e.name);
+    assert(names.some(n => n.includes("Alice")), "should find Alice");
+    // Check returned shape
+    const first = result[0];
+    assert(typeof first.name === "string", "entity should have name");
+    assert(typeof first.category === "string", "entity should have category");
+    assert(Array.isArray(first.tags), "entity should have tags array");
   });
 
   await test("Preprocessor", "applyEntityUpdate adds tags and summary", async () => {
-    const { applyEntityUpdate } = await import("../packages/mindreader-ui/server/lib/preprocessor.js");
-    const driver = (await import("../packages/mindreader-ui/server/neo4j.js")).getDriver({
-      neo4jUri: `bolt://localhost:${NEO4J_PORT}`,
-      neo4jUser: "neo4j",
-      neo4jPassword: NEO4J_PASS,
-    });
-    try {
-      // Apply update to test entity
-      await applyEntityUpdate({
-        name: `${TEST_PREFIX}Bob`,
-        addTags: ["developer", "react-expert"],
-        summaryAppend: "Bob is an experienced React developer.",
-      }, driver);
+    // Apply update to test entity
+    await ppMod.applyEntityUpdate({
+      name: `${TEST_PREFIX}Bob`,
+      addTags: ["developer", "react-expert"],
+      summaryAppend: "Bob is an experienced React developer.",
+    }, ppDriver);
 
-      // Verify the update
-      const session = driver.session();
-      try {
-        const result = await session.run(
-          `MATCH (e:Entity {name: $name}) RETURN e.tags AS tags, e.summary AS summary`,
-          { name: `${TEST_PREFIX}Bob` }
-        );
-        const record = result.records[0];
-        const tags = record.get("tags");
-        const summary = record.get("summary");
-        assert(tags.includes("developer"), "should have added 'developer' tag");
-        assert(tags.includes("react-expert"), "should have added 'react-expert' tag");
-        assert(tags.includes("test"), "should still have original 'test' tag");
-        assert(summary.includes("React developer"), "should have appended summary");
-      } finally {
-        await session.close();
-      }
+    // Verify the update
+    const session = ppDriver.session();
+    try {
+      const result = await session.run(
+        `MATCH (e:Entity {name: $name}) RETURN e.tags AS tags, e.summary AS summary`,
+        { name: `${TEST_PREFIX}Bob` }
+      );
+      const record = result.records[0];
+      const tags = record.get("tags");
+      const summary = record.get("summary");
+      assert(tags.includes("developer"), "should have added 'developer' tag");
+      assert(tags.includes("react-expert"), "should have added 'react-expert' tag");
+      assert(tags.includes("test"), "should still have original 'test' tag");
+      assert(summary.includes("React developer"), "should have appended summary");
     } finally {
-      await driver.close();
+      await session.close();
     }
   });
+
+  // Clean up shared driver
+  await ppDriver.close();
 }
 
 // ---------------------------------------------------------------------------
