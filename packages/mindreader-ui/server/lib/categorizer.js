@@ -91,8 +91,16 @@ function categorizeNode(node) {
 
 function categorizeEntity(name, summary, category) {
   // Display-time fallback only — actual categorization is done by LLM via auto-categorizer
-  // If already categorized (not empty), return as-is
-  if (category && category.trim() !== "") return category;
+  // Only accept category if it matches a known Category key (prevents Graphiti's
+  // raw group_id values like "organization", "concept" from leaking through)
+  if (category && category.trim() !== "") {
+    const key = category.trim().toLowerCase();
+    const validKeys = cachedCategories && cachedCategories.length > 0
+      ? new Set(cachedCategories.map(c => c.key))
+      : new Set(["person", "project", "location", "infrastructure", "agent", "companies", "credential", "decision", "event", "preference", "procedure", "other"]);
+    if (validKeys.has(key)) return key;
+    // Unknown category (e.g. Graphiti's "organization", "concept") — fall through to keyword matching
+  }
   name = (name || "").toLowerCase();
   summary = (summary || "").toLowerCase();
   const combined = name + " " + summary;
