@@ -542,12 +542,74 @@ function Step-VerifyInstall {
     Install-PythonVenv
     Install-NPM
     Build-UI
+    Init-Neo4jIndexes
 
     # OpenClaw plugin
     if ($script:IncludeOpenClaw -and $script:OpenClawExtPath) {
         Install-OpenClawPlugin
     }
 
+    Write-Host ""
+}
+
+# ---------------------------------------------------------------------------
+# Neo4j index initialization
+# ---------------------------------------------------------------------------
+function Init-Neo4jIndexes {
+    Write-Info "Initialising Neo4j indexes..."
+    $initScript = Join-Path $PythonDir "init_db.py"
+    if (Test-Path $initScript) {
+        $pyPath = Find-RealPython
+        if ($pyPath) {
+            $venvPy = Join-Path $VenvDir "Scripts\python.exe"
+            $usePy = if (Test-Path $venvPy) { $venvPy } else { $pyPath }
+            try {
+                & $usePy $initScript 2>$null
+                Write-Success "Neo4j indexes initialised."
+            } catch {
+                Write-Warn "Index init script failed - you may need to run it manually."
+            }
+        }
+    } else {
+        Write-Warn "No init_db.py found - skipping index initialisation."
+    }
+}
+
+# ---------------------------------------------------------------------------
+# CLI Alias (optional)
+# ---------------------------------------------------------------------------
+function Step-Alias {
+    Write-Separator
+    Write-Host "CLI Alias (optional)" -ForegroundColor White
+    Write-Separator
+    Write-Host ""
+
+    $profilePath = $PROFILE.CurrentUserAllHosts
+    $pyPath = Find-RealPython
+    if (-not $pyPath) { $pyPath = "python" }
+    $aliasLine = "function mg { & `"$pyPath`" `"$MgCli`" @args }"
+
+    if (Ask-YN "Add 'mg' command to your PowerShell profile ($profilePath)?" "Y") {
+        # Create profile if it doesn't exist
+        $profileDir = Split-Path -Parent $profilePath
+        if (-not (Test-Path $profileDir)) {
+            New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+        }
+        if (-not (Test-Path $profilePath)) {
+            New-Item -ItemType File -Path $profilePath -Force | Out-Null
+        }
+
+        $existing = Get-Content $profilePath -Raw -ErrorAction SilentlyContinue
+        if ($existing -and $existing.Contains("function mg")) {
+            Write-Info "mg function already present in profile - skipping."
+        } else {
+            Add-Content -Path $profilePath -Value "`n# MindReader CLI alias`n$aliasLine"
+            Write-Success "Alias added. Run: . `$PROFILE  (or open a new terminal)"
+        }
+    } else {
+        Write-Info "Skipping alias. You can add it manually to your PowerShell profile:"
+        Write-Host "  $aliasLine"
+    }
     Write-Host ""
 }
 
@@ -780,4 +842,5 @@ Step-Neo4j
 Step-LLM
 Step-VerifyInstall
 Write-EnvFile
+Step-Alias
 Print-Summary
