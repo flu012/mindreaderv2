@@ -40,10 +40,19 @@ function Ask-YN($prompt, $default = "Y") {
     return ($reply.ToUpper() -eq "Y")
 }
 
-function Ask-Secret($prompt) {
-    $secure = Read-Host $prompt -AsSecureString
+function Ask-Secret($prompt, $default) {
+    if ($default) {
+        $masked = $default.Substring(0, [Math]::Min(4, $default.Length)) + ("*" * [Math]::Max(0, $default.Length - 4))
+        $secure = Read-Host "$prompt [$masked]" -AsSecureString
+    } else {
+        $secure = Read-Host $prompt -AsSecureString
+    }
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try { return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr) }
+    try {
+        $val = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        if ([string]::IsNullOrWhiteSpace($val) -and $default) { return $default }
+        return $val
+    }
     finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
@@ -193,7 +202,7 @@ function Step-Neo4j {
         Write-Info "Using existing Neo4j instance."
         $script:Neo4jUri = Ask "Neo4j URI" $script:Neo4jUri
         $script:Neo4jUser = Ask "Neo4j username" $script:Neo4jUser
-        $script:Neo4jPassword = Ask-Secret "Neo4j password"
+        $script:Neo4jPassword = Ask-Secret "Neo4j password" $script:Neo4jPassword
     } else {
         $script:Neo4jManaged = $true
         Write-Info "MindReader will start Neo4j via Docker."
@@ -300,7 +309,7 @@ function Step-LLM {
 
     Write-Info "Default model for $($script:LlmProvider): $defaultModel"
     $script:LlmModel = Ask "LLM model (press Enter to keep default)" (Get-Default "LLM_MODEL" $defaultModel)
-    $script:LlmApiKey = Ask-Secret "API key for $($script:LlmProvider)"
+    $script:LlmApiKey = Ask-Secret "API key for $($script:LlmProvider)" (Get-Default "LLM_API_KEY" "")
 
     Write-Host ""
     Write-Info "Node Evolve uses a separate model with web search capability."
@@ -326,15 +335,13 @@ function Step-LLM {
             $script:EmbedderProvider = "openai"
             $script:EmbedderBaseUrl = "https://api.openai.com/v1"
             $embDefaultModel = "text-embedding-3-small"
-            $script:EmbedderApiKey = Ask-Secret "API key for OpenAI embedder (Enter to reuse LLM key)"
-            if ([string]::IsNullOrWhiteSpace($script:EmbedderApiKey)) { $script:EmbedderApiKey = $script:LlmApiKey }
+            $script:EmbedderApiKey = Ask-Secret "API key for OpenAI embedder (Enter to reuse LLM key)" $script:LlmApiKey
         }
         "2" {
             $script:EmbedderProvider = "dashscope"
             $script:EmbedderBaseUrl = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
             $embDefaultModel = "text-embedding-v4"
-            $script:EmbedderApiKey = Ask-Secret "API key for DashScope embedder (Enter to reuse LLM key)"
-            if ([string]::IsNullOrWhiteSpace($script:EmbedderApiKey)) { $script:EmbedderApiKey = $script:LlmApiKey }
+            $script:EmbedderApiKey = Ask-Secret "API key for DashScope embedder (Enter to reuse LLM key)" $script:LlmApiKey
         }
         default {
             if ($script:LlmProvider -eq "anthropic") {
@@ -343,7 +350,7 @@ function Step-LLM {
                 $script:EmbedderProvider = "openai"
                 $script:EmbedderBaseUrl = "https://api.openai.com/v1"
                 $embDefaultModel = "text-embedding-3-small"
-                $script:EmbedderApiKey = Ask-Secret "API key for OpenAI embedder"
+                $script:EmbedderApiKey = Ask-Secret "API key for OpenAI embedder" (Get-Default "EMBEDDER_API_KEY" "")
             } else {
                 $script:EmbedderProvider = $script:LlmProvider
                 $script:EmbedderBaseUrl = $script:LlmBaseUrl
@@ -444,11 +451,25 @@ print('OK:', r.choices[0].message.content)
 "@
     }
 
-    $result = $testCode | & $pyPath 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "LLM API verified: $result"
+    try {
+        $oldPref = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $result = $testCode | & $pyPath 2>&1
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = $oldPref
+    } catch {
+        $ErrorActionPreference = $oldPref
+        Write-Warn "LLM test threw an exception: $_"
+        return $false
+    }
+    # Filter out ErrorRecord objects (Python stderr) and keep only strings
+    $output = ($result | Where-Object { $_ -is [string] }) -join "`n"
+    if ($exitCode -eq 0) {
+        Write-Success "LLM API verified: $output"
         return $true
     }
+    $errOutput = ($result | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+    if ($errOutput) { Write-Warn "LLM test stderr: $errOutput" }
     return $false
 }
 
@@ -548,7 +569,7 @@ function Step-VerifyInstall {
             } else {
                 $script:Neo4jUri = Ask "Re-enter Neo4j URI" $script:Neo4jUri
                 $script:Neo4jUser = Ask "Re-enter Neo4j username" $script:Neo4jUser
-                $script:Neo4jPassword = Ask-Secret "Re-enter Neo4j password"
+                $script:Neo4jPassword = Ask-Secret "Re-enter Neo4j password" $script:Neo4jPassword
             }
         } else {
             if (Ask-YN "Retry Neo4j connection?" "Y") { continue }
@@ -568,7 +589,7 @@ function Step-VerifyInstall {
                 Write-Warn "Skipping LLM verification."
                 break
             } else {
-                $script:LlmApiKey = Ask-Secret "Re-enter API key for $($script:LlmProvider)"
+                $script:LlmApiKey = Ask-Secret "Re-enter API key for $($script:LlmProvider)" $script:LlmApiKey
             }
         } else {
             if (Ask-YN "Retry LLM API test?" "Y") { continue }

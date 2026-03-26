@@ -59,10 +59,16 @@ ask_yn() {
 
 ask_secret() {
     local prompt="$1"
+    local default="${2:-}"
     local reply
-    read -r -s -p "$(echo -e "${BOLD}${prompt}${RESET}: ")" reply
+    if [[ -n "$default" ]]; then
+        local masked="${default:0:4}$(printf '%*s' $((${#default} - 4)) '' | tr ' ' '*')"
+        read -r -s -p "$(echo -e "${BOLD}${prompt}${RESET} [${masked}]: ")" reply
+    else
+        read -r -s -p "$(echo -e "${BOLD}${prompt}${RESET}: ")" reply
+    fi
     echo
-    echo "$reply"
+    echo "${reply:-$default}"
 }
 
 separator() { echo -e "${CYAN}──────────────────────────────────────────────────${RESET}"; }
@@ -292,7 +298,7 @@ step_neo4j() {
         info "Using existing Neo4j instance."
         NEO4J_URI="$(ask "Neo4j URI" "$NEO4J_URI")"
         NEO4J_USER="$(ask "Neo4j username" "$NEO4J_USER")"
-        NEO4J_PASSWORD="$(ask_secret "Neo4j password")"
+        NEO4J_PASSWORD="$(ask_secret "Neo4j password" "$NEO4J_PASSWORD")"
     else
         NEO4J_MANAGED=true
         info "MindReader will start Neo4j via Docker."
@@ -390,7 +396,7 @@ step_llm() {
 
     info "Default model for ${LLM_PROVIDER}: ${LLM_DEFAULT_MODEL}"
     LLM_MODEL="$(ask "LLM model (press Enter to keep default)" "${LLM_MODEL:-$LLM_DEFAULT_MODEL}")"
-    LLM_API_KEY="$(ask_secret "API key for ${LLM_PROVIDER}")"
+    LLM_API_KEY="$(ask_secret "API key for ${LLM_PROVIDER}" "${LLM_API_KEY:-}")"
 
     # Node Evolve model (optional)
     echo
@@ -418,15 +424,13 @@ step_llm() {
             EMBEDDER_PROVIDER="openai"
             EMBEDDER_BASE_URL="https://api.openai.com/v1"
             EMBEDDER_DEFAULT_MODEL="text-embedding-3-small"
-            EMBEDDER_API_KEY="$(ask_secret "API key for OpenAI embedder (Enter to reuse LLM key)")"
-            EMBEDDER_API_KEY="${EMBEDDER_API_KEY:-$LLM_API_KEY}"
+            EMBEDDER_API_KEY="$(ask_secret "API key for OpenAI embedder (Enter to reuse LLM key)" "$LLM_API_KEY")"
             ;;
         2)
             EMBEDDER_PROVIDER="dashscope"
             EMBEDDER_BASE_URL="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
             EMBEDDER_DEFAULT_MODEL="text-embedding-v4"
-            EMBEDDER_API_KEY="$(ask_secret "API key for DashScope embedder (Enter to reuse LLM key)")"
-            EMBEDDER_API_KEY="${EMBEDDER_API_KEY:-$LLM_API_KEY}"
+            EMBEDDER_API_KEY="$(ask_secret "API key for DashScope embedder (Enter to reuse LLM key)" "$LLM_API_KEY")"
             ;;
         3|*)
             if [[ "$LLM_PROVIDER" == "anthropic" ]]; then
@@ -435,7 +439,7 @@ step_llm() {
                 EMBEDDER_PROVIDER="openai"
                 EMBEDDER_BASE_URL="https://api.openai.com/v1"
                 EMBEDDER_DEFAULT_MODEL="text-embedding-3-small"
-                EMBEDDER_API_KEY="$(ask_secret "API key for OpenAI embedder")"
+                EMBEDDER_API_KEY="$(ask_secret "API key for OpenAI embedder" "${EMBEDDER_API_KEY:-}")"
             else
                 EMBEDDER_PROVIDER="$LLM_PROVIDER"
                 EMBEDDER_BASE_URL="$LLM_BASE_URL"
@@ -643,7 +647,7 @@ step_verify_install() {
             else
                 NEO4J_URI="$(ask "Re-enter Neo4j URI" "$NEO4J_URI")"
                 NEO4J_USER="$(ask "Re-enter Neo4j username" "$NEO4J_USER")"
-                NEO4J_PASSWORD="$(ask_secret "Re-enter Neo4j password")"
+                NEO4J_PASSWORD="$(ask_secret "Re-enter Neo4j password" "$NEO4J_PASSWORD")"
             fi
         else
             if ask_yn "Retry Neo4j connection?" "Y"; then
@@ -668,7 +672,7 @@ step_verify_install() {
                 warn "Skipping LLM verification. Check your API key and base URL."
                 break
             else
-                LLM_API_KEY="$(ask_secret "Re-enter API key for ${LLM_PROVIDER}")"
+                LLM_API_KEY="$(ask_secret "Re-enter API key for ${LLM_PROVIDER}" "$LLM_API_KEY")"
             fi
         else
             if ask_yn "Retry LLM API test?" "Y"; then
