@@ -5,7 +5,7 @@ import path from "node:path";
 import neo4j from "neo4j-driver";
 import { query, nodeToPlain, relToPlain } from "../neo4j.js";
 import { categorizeEntity } from "../lib/categorizer.js";
-import { preprocessStore, executePreprocessResult, EXTRACTION_INSTRUCTIONS } from "../lib/preprocessor.js";
+import { EXTRACTION_INSTRUCTIONS } from "../lib/preprocessor.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger, mgDaemon } = ctx;
@@ -623,10 +623,9 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 conne
    *
    * Instead of raw Cypher entity/relationship creation, we:
    * 1. Drop orphan entities (no relationships → never should have been discovered)
-   * 2. Feed each relationship fact through preprocessStore → Graphiti
-   *    - Preprocessor classifies: attributes update existing entities, relationships go to Graphiti
-   *    - Graphiti creates new entities with proper embeddings + EXTRACTION_INSTRUCTIONS
-   * 3. This means any improvements to the store/capture pipeline automatically apply to evolve
+   * 2. Feed relationship facts to Graphiti in parallel batches with EXTRACTION_INSTRUCTIONS
+   *    - Graphiti creates new entities with proper embeddings + deduplication
+   * 3. EXTRACTION_INSTRUCTIONS prevent junk entities (roles, skills, attributes)
    */
   app.post("/api/entity/:name/evolve/save", async (req, res) => {
     try {
@@ -670,46 +669,35 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 conne
         logger?.info?.(`[evolve/save] Dropped ${droppedOrphans} orphan entities with no relationships`);
       }
 
-      // Feed each relationship fact through the store pipeline.
-      // The preprocessor will classify attributes vs relationships,
-      // and Graphiti will create entities with embeddings + EXTRACTION_INSTRUCTIONS.
+      // Feed relationship facts to Graphiti in parallel batches.
+      // Evolve facts are already well-structured relationship sentences from the LLM,
+      // so we skip the per-fact preprocessor (which would add an extra LLM call each)
+      // and send them directly to Graphiti with EXTRACTION_INSTRUCTIONS.
+      const BATCH_SIZE = 5;
       let storedCount = 0;
-      let attrCount = 0;
       const errors = [];
 
-      for (const rel of relationships) {
-        const fact = rel.fact.trim().slice(0, 2000);
-        try {
-          const result = await preprocessStore(fact, "evolve", targetName, driver, config, logger);
-          attrCount += result.entityUpdates.length;
-          storedCount += result.forGraphiti.length;
-          await executePreprocessResult(result, driver, mgDaemon, config, logger);
-        } catch (err) {
-          // Degrade: send raw fact to Graphiti with EXTRACTION_INSTRUCTIONS
-          logger?.warn?.(`[evolve/save] preprocessor failed for fact, degrading: ${err.message}`);
-          try {
-            await mgDaemon("add", {
+      for (let i = 0; i < relationships.length; i += BATCH_SIZE) {
+        const batch = relationships.slice(i, i + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(rel => {
+            const fact = rel.fact.trim().slice(0, 2000);
+            return mgDaemon("add", {
               content: fact,
               source: "evolve",
               project: targetName,
               custom_instructions: EXTRACTION_INSTRUCTIONS,
             }, 120000);
-            storedCount++;
-          } catch (e2) {
-            errors.push(e2.message);
-          }
+          })
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") storedCount++;
+          else errors.push(r.reason?.message || "unknown error");
         }
       }
 
-      // Count what Graphiti actually created by checking entity names from relationships
-      // that didn't previously exist in the graph
-      const newEntityNames = [...entityNamesInRels].filter(n =>
-        n !== targetName.toLowerCase()
-      );
-
       res.json({
         relationshipsProcessed: relationships.length,
-        attributeUpdates: attrCount,
         relationshipsStored: storedCount,
         orphansDropped: droppedOrphans,
         // Keep backwards-compatible fields for UI
