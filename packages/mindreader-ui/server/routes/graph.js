@@ -132,7 +132,7 @@ export function registerRoutes(app, ctx) {
         MATCH (start:Entity {name: $name})
         CALL {
           WITH start
-          MATCH (start)-[*1..${depth}]-(neighbor:Entity)
+          MATCH (start)-[:RELATES_TO*1..${depth}]-(neighbor:Entity)
           RETURN neighbor AS n
           UNION
           WITH start
