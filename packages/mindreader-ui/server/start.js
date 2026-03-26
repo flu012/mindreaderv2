@@ -10,4 +10,4 @@ const logger = {
   error: (...args) => console.error("[error]", ...args),
 };
 
-startServer({}, logger);
+startServer({}, logger, { eagerDaemon: true });

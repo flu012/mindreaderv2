@@ -177,8 +177,10 @@ export function createDaemon(config, logger) {
     }
   }
 
-  // Start daemon eagerly
-  try { _startDaemon(); } catch (err) { logger?.warn?.("Could not start Python daemon:", err.message); }
+  // Start daemon lazily on first use (eager start blocks OpenClaw plugin loading)
+  function warmup() {
+    try { _startDaemon(); } catch (err) { logger?.warn?.("Could not start Python daemon:", err.message); }
+  }
 
-  return { mgDaemon, mgExec, stop: _stopDaemon };
+  return { mgDaemon, mgExec, stop: _stopDaemon, warmup };
 }

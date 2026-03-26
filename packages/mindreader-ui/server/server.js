@@ -88,8 +88,9 @@ export function createServer(config, logger) {
     }
   });
 
-  // Expose stop function for cleanup
+  // Expose stop and warmup functions for cleanup / standalone start
   app._stopDaemon = daemon.stop;
+  app._warmupDaemon = daemon.warmup;
 
   return app;
 }
@@ -97,10 +98,13 @@ export function createServer(config, logger) {
 /**
  * Start the MindReader UI server.
  */
-export function startServer(configOverrides, logger) {
+export function startServer(configOverrides, logger, { eagerDaemon = false } = {}) {
   const config = loadConfig(configOverrides || {});
   const port = config.uiPort || 18900;
   const app = createServer(config, logger);
+
+  // Eagerly start Python daemon when running standalone (not as plugin)
+  if (eagerDaemon && app._warmupDaemon) app._warmupDaemon();
 
   // Initialize Neo4j indexes at startup for search performance
   const driver = getDriver(config);
