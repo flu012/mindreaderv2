@@ -36,6 +36,7 @@ export default function App() {
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [hiddenTypes, setHiddenTypes] = useState(new Set());
   const [graphLayout, setGraphLayout] = useState("force");
+  const [egoGraph, setEgoGraph] = useState(null); // { data, center } when viewing ego subgraph
   const [refreshKey, setRefreshKey] = useState(0);
   const [dynamicCategories, setDynamicCategories] = useState(null);
   const graphRef = useRef();
@@ -44,6 +45,7 @@ export default function App() {
   // Sync tab with URL hash
   const changeTab = useCallback((id) => {
     setActiveTab(id);
+    if (id !== "graph") setEgoGraph(null);
     window.location.hash = id;
   }, []);
 
@@ -137,6 +139,20 @@ export default function App() {
   }, [nodeMap]);
   const handleMouseMove = useCallback((e) => setTooltipPos({ x: e.clientX, y: e.clientY }), []);
 
+  const handleViewGraph = useCallback(async (entityName) => {
+    try {
+      const res = await fetch(`/api/graph/ego/${encodeURIComponent(entityName)}?depth=2`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setEgoGraph({ data, center: entityName });
+      changeTab("graph");
+    } catch (err) {
+      console.error("Failed to load ego graph:", err);
+    }
+  }, [changeTab]);
+
+  const clearEgoGraph = useCallback(() => setEgoGraph(null), []);
+
   const toggleFilter = useCallback((group) => {
     setHiddenTypes((prev) => {
       const next = new Set(prev);
@@ -146,10 +162,11 @@ export default function App() {
   }, []);
 
   const filteredData = useMemo(() => {
-    if (hiddenTypes.size === 0) return graphData;
-    const nodes = graphData.nodes.filter((n) => !hiddenTypes.has(n.category));
+    const source = egoGraph ? egoGraph.data : graphData;
+    if (hiddenTypes.size === 0) return source;
+    const nodes = source.nodes.filter((n) => !hiddenTypes.has(n.category));
     const ids = new Set(nodes.map((n) => n.id));
-    const links = graphData.links.filter((l) => {
+    const links = source.links.filter((l) => {
       const s = typeof l.source === "object" ? l.source.id : l.source;
       const t = typeof l.target === "object" ? l.target.id : l.target;
       return ids.has(s) && ids.has(t);
@@ -268,6 +285,28 @@ export default function App() {
 
             {activeTab === "graph" && (
               <div className="graph-wrapper">
+                {/* Ego graph banner */}
+                {egoGraph && (
+                  <div style={{
+                    position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 100,
+                    background: "rgba(10, 10, 26, 0.9)", backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(74, 158, 255, 0.25)", borderRadius: 10,
+                    padding: "8px 16px", display: "flex", alignItems: "center", gap: 12,
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+                  }}>
+                    <span style={{ fontSize: 13, color: "#4a9eff" }}>
+                      🕸️ Viewing <strong>{egoGraph.center}</strong> ({filteredData.nodes.length} nodes)
+                    </span>
+                    <button
+                      onClick={clearEgoGraph}
+                      style={{
+                        padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                        cursor: "pointer", background: "rgba(74, 158, 255, 0.15)",
+                        border: "1px solid rgba(74, 158, 255, 0.3)", color: "#4a9eff",
+                      }}
+                    >Back to full graph</button>
+                  </div>
+                )}
                 {/* Layout selector */}
                 <div style={{
                   position: "absolute", bottom: 16, right: 16, zIndex: 100,
@@ -400,6 +439,7 @@ export default function App() {
                 onRefresh={() => { handleRefresh(); if (entityDetail?.entity?.name) handleSelectEntity(entityDetail.entity.name); }}
                 onEntityUpdate={() => { handleRefresh(); if (entityDetail?.entity?.name) handleSelectEntity(entityDetail.entity.name); }}
                 categoryColors={catColors}
+                onViewGraph={handleViewGraph}
                 onDeleteNode={(name) => {
                   setGraphData(prev => {
                     const nodes = prev.nodes.filter(n => n.name !== name);

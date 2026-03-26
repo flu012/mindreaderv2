@@ -71,7 +71,7 @@ function TagEditor({ tags, entityName, onTagsChanged }) {
   );
 }
 
-export default function DetailPanel({ entity, relationships, onClose, onNavigate, groupColors, categoryColors, onRefresh, onEntityUpdate, onDeleteNode }) {
+export default function DetailPanel({ entity, relationships, onClose, onNavigate, groupColors, categoryColors, onRefresh, onEntityUpdate, onDeleteNode, onViewGraph }) {
   const [activeAction, setActiveAction] = useState(null); // null | "merge" | "link"
   const [showEvolve, setShowEvolve] = useState(false);
 
@@ -98,8 +98,8 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
         <NodeTypeSelector entityName={entity.name} currentNodeType={entity.node_type || "normal"} onRefresh={onEntityUpdate || onRefresh} />
       </div>
 
-      {/* Action toolbar — 2 buttons per row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+      {/* Action toolbar */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
         <button
           onClick={() => setShowEvolve(true)}
           disabled={showEvolve}
@@ -112,6 +112,16 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
             opacity: showEvolve ? 0.5 : 1,
           }}
         >✨ Evolve</button>
+        <button
+          onClick={() => onViewGraph && onViewGraph(entity.name)}
+          style={{
+            padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 600,
+            cursor: "pointer", transition: "all 0.2s",
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "var(--text-secondary)",
+          }}
+        >🕸️ Graph</button>
         <button
           onClick={() => setActiveAction(activeAction === "link" ? null : "link")}
           style={{

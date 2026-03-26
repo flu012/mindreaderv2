@@ -117,4 +117,66 @@ export function registerRoutes(app, ctx) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  /**
+   * GET /api/graph/ego/:name — Ego graph: node + multi-level neighbors
+   * Query params: ?depth=2 (default 2, max 4)
+   */
+  app.get("/api/graph/ego/:name", async (req, res) => {
+    try {
+      const name = req.params.name;
+      const depth = Math.min(Math.max(parseInt(req.query.depth) || 2, 1), 4);
+
+      // Variable-length relationship pattern for multi-hop BFS
+      const nodeRecords = await query(driver, `
+        MATCH (start:Entity {name: $name})
+        CALL {
+          WITH start
+          MATCH (start)-[*1..${depth}]-(neighbor:Entity)
+          RETURN neighbor AS n
+          UNION
+          WITH start
+          RETURN start AS n
+        }
+        RETURN DISTINCT n
+      `, { name });
+
+      const nodes = nodeRecords.map((rec) => {
+        const n = rec.n ? nodeToPlain(rec.n) : rec;
+        return {
+          id: n.uuid || n._id,
+          name: n.name || "unknown",
+          summary: n.summary || "",
+          labels: n._labels || ["Entity"],
+          category: categorizeNode(n),
+          tags: Array.isArray(n.tags) ? n.tags : [],
+          node_type: n.node_type || "normal",
+          created_at: n.created_at,
+        };
+      });
+
+      const nodeIds = new Set(nodes.map((n) => n.id));
+
+      const linkRecords = await query(driver, `
+        MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+        WHERE a.uuid IN $ids AND b.uuid IN $ids AND r.expired_at IS NULL
+        RETURN a.uuid AS source, b.uuid AS target,
+               r.name AS label, r.fact AS fact,
+               r.created_at AS created_at
+      `, { ids: [...nodeIds] });
+
+      const links = linkRecords.map((rec) => ({
+        source: rec.source,
+        target: rec.target,
+        label: rec.label || "",
+        fact: rec.fact || "",
+        created_at: rec.created_at,
+      }));
+
+      res.json({ nodes, links, center: name });
+    } catch (err) {
+      logger?.error?.(`Ego graph error: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
