@@ -9,8 +9,24 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Monorepo root is 3 levels up from packages/mindreader-ui/server/
-const MONOREPO_ROOT = path.resolve(__dirname, "../../..");
+// Monorepo root: 3 levels up when running from packages/mindreader-ui/server/.
+// When running as OpenClaw plugin, __dirname is the extension's server/ dir,
+// so also check via the node_modules junction which points to monorepo/node_modules.
+function findMonorepoRoot() {
+  // Direct path (development)
+  const direct = path.resolve(__dirname, "../../..");
+  if (existsSync(path.join(direct, ".env")) || existsSync(path.join(direct, "package.json"))) {
+    return direct;
+  }
+  // Via node_modules junction (OpenClaw plugin)
+  const nmPath = path.resolve(__dirname, "../node_modules");
+  if (existsSync(nmPath)) {
+    const nmReal = path.resolve(nmPath, "..");
+    if (existsSync(path.join(nmReal, ".env"))) return nmReal;
+  }
+  return direct; // fallback
+}
+const MONOREPO_ROOT = findMonorepoRoot();
 
 /** Resolve the venv python executable path (cross-platform). */
 export function venvPython(pythonDir) {
