@@ -21,14 +21,18 @@ export const EXTRACTION_INSTRUCTIONS = `CRITICAL: Attributes are NOT entities. D
 - Quantities, measurements, counts, ages
 - Statuses, states, conditions (e.g. "active", "deprecated", "in progress")
 - Descriptions, adjectives, characteristics (e.g. "large-scale", "high-performance")
-- Versions, editions (e.g. "v2", "Enterprise Edition")
 - Dates, time periods (e.g. "2024", "last quarter")
 
 These are ATTRIBUTES of their parent entity, not independent entities.
 Capture them in the edge 'fact' field or the entity's summary instead.
 
 Only create entity nodes for things with independent identity:
-people, organizations, projects, products, technologies, places, events.`;
+people, organizations, projects, products, technologies, places, events.
+
+CRITICAL: When the text mentions multiple entities, ALWAYS create relationship edges between them.
+For example, "Alice generated V5.2 of the Agreement" should create edges:
+  Alice --[generated]--> Agreement (with fact mentioning V5.2 in the edge).
+Do NOT create isolated entities — every entity must connect to at least one other entity via an edge.`;
 
 // English stopwords to exclude from entity lookup keywords
 const STOPWORDS = new Set([
@@ -212,6 +216,13 @@ function parseClassifyResponse(response, source, project, knownEntityNames) {
       });
     } else if (fact.type === "relationship" && fact.text) {
       result.forGraphiti.push({ content: fact.text, source, project });
+    } else if (fact.type === "attribute" && fact.entity_name && !knownEntityNames.has(fact.entity_name)) {
+      // LLM classified as attribute but entity is unknown — forward to Graphiti
+      // so it can create the entity WITH proper relationships
+      const text = fact.summary_append
+        ? `${fact.entity_name}: ${fact.summary_append}`
+        : fact.entity_name;
+      result.forGraphiti.push({ content: text, source, project });
     }
   }
   return result;
