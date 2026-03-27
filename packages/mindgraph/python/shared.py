@@ -76,7 +76,14 @@ QUEUE_DIR = _cache_base / "queue"
 
 def validate_env():
     """Validate required environment variables at startup."""
-    required = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "LLM_API_KEY", "EMBEDDER_API_KEY"]
+    required = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"]
+    # API keys not required for local providers like Ollama
+    is_local_llm = os.getenv("LLM_PROVIDER", "").lower() == "ollama"
+    is_local_embedder = os.getenv("EMBEDDER_PROVIDER", "").lower() == "ollama"
+    if not is_local_llm:
+        required.append("LLM_API_KEY")
+    if not is_local_embedder:
+        required.append("EMBEDDER_API_KEY")
     missing = [v for v in required if not os.getenv(v)]
     if missing:
         print(f"Missing required environment variables: {', '.join(missing)}", file=sys.stderr)
@@ -98,7 +105,7 @@ def make_graphiti():
     base_model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
     llm_config = LLMConfig(
-        api_key=os.getenv("LLM_API_KEY"),
+        api_key=os.getenv("LLM_API_KEY") or "ollama",
         base_url=os.getenv("LLM_BASE_URL"),
         model=extract_model,
         small_model=os.getenv("LLM_SMALL_MODEL", base_model),
@@ -108,7 +115,7 @@ def make_graphiti():
 
     embedder = TrackedEmbedder(
         config=OpenAIEmbedderConfig(
-            api_key=os.getenv("EMBEDDER_API_KEY"),
+            api_key=os.getenv("EMBEDDER_API_KEY") or "ollama",
             base_url=os.getenv("EMBEDDER_BASE_URL"),
             embedding_model=os.getenv("EMBEDDER_MODEL"),
             embedding_dim=int(os.getenv("EMBEDDER_DIM", "1536")),
@@ -119,13 +126,13 @@ def make_graphiti():
     is_anthropic = os.getenv("LLM_PROVIDER", "").lower() == "anthropic"
     if is_anthropic:
         reranker_config = LLMConfig(
-            api_key=os.getenv("EMBEDDER_API_KEY"),
+            api_key=os.getenv("EMBEDDER_API_KEY") or "ollama",
             base_url=os.getenv("EMBEDDER_BASE_URL"),
             model=os.getenv("LLM_SMALL_MODEL", "gpt-4o-mini"),
         )
     else:
         reranker_config = LLMConfig(
-            api_key=os.getenv("LLM_API_KEY"),
+            api_key=os.getenv("LLM_API_KEY") or "ollama",
             base_url=os.getenv("LLM_BASE_URL"),
             model=os.getenv("LLM_SMALL_MODEL", base_model),
         )

@@ -279,6 +279,7 @@ function Step-LLM {
     Write-Host "  1) OpenAI    - gpt-4o-mini (default)"
     Write-Host "  2) Anthropic - claude-sonnet-4-6 (native API support)"
     Write-Host "  3) DashScope - qwen3.5-flash (Alibaba Cloud)"
+    Write-Host "  4) Ollama    - local models (no API key needed)"
     Write-Host ""
 
     $llmChoice = Ask "Choice" "1"
@@ -293,6 +294,12 @@ function Step-LLM {
             $script:LlmProvider = "anthropic"
             $script:LlmBaseUrl = "https://api.anthropic.com/v1"
             $defaultModel = "claude-sonnet-4-6"
+        }
+        "4" {
+            $script:LlmProvider = "ollama"
+            $defaultModel = "llama3.2"
+            $script:LlmBaseUrl = Ask "Ollama URL" "http://localhost:11434/v1"
+            $script:LlmApiKey = "ollama"
         }
         "3" {
             $script:LlmProvider = "dashscope"
@@ -318,7 +325,9 @@ function Step-LLM {
 
     Write-Info "Default model for $($script:LlmProvider): $defaultModel"
     $script:LlmModel = Ask "LLM model (press Enter to keep default)" (Get-Default "LLM_MODEL" $defaultModel)
-    $script:LlmApiKey = Ask-Secret "API key for $($script:LlmProvider)" (Get-Default "LLM_API_KEY" "")
+    if ($script:LlmProvider -ne "ollama") {
+        $script:LlmApiKey = Ask-Secret "API key for $($script:LlmProvider)" (Get-Default "LLM_API_KEY" "")
+    }
 
     Write-Host ""
     Write-Info "Node Evolve uses a separate model with web search capability."
@@ -334,10 +343,11 @@ function Step-LLM {
     Write-Host "Select your embedder provider:"
     Write-Host "  1) OpenAI    - text-embedding-3-small"
     Write-Host "  2) DashScope - text-embedding-v4"
-    Write-Host "  3) Same as LLM provider"
+    Write-Host "  3) Ollama    - nomic-embed-text (local)"
+    Write-Host "  4) Same as LLM provider"
     Write-Host ""
 
-    $embChoice = Ask "Choice" "3"
+    $embChoice = Ask "Choice" "4"
 
     switch ($embChoice) {
         "1" {
@@ -361,6 +371,13 @@ function Step-LLM {
             }
             $script:EmbedderApiKey = Ask-Secret "API key for DashScope embedder (Enter to reuse LLM key)" $script:LlmApiKey
         }
+        "3" {
+            $script:EmbedderProvider = "ollama"
+            $embDefaultModel = "nomic-embed-text"
+            $script:EmbedderBaseUrl = Ask "Ollama URL" "http://localhost:11434/v1"
+            $script:EmbedderApiKey = "ollama"
+            $script:EmbedderDim = "768"
+        }
         default {
             if ($script:LlmProvider -eq "anthropic") {
                 Write-Warn "Anthropic does not provide an embeddings API."
@@ -376,6 +393,7 @@ function Step-LLM {
                 switch ($script:EmbedderProvider) {
                     "openai"    { $embDefaultModel = "text-embedding-3-small" }
                     "dashscope" { $embDefaultModel = "text-embedding-v4" }
+                    "ollama"    { $embDefaultModel = "nomic-embed-text"; $script:EmbedderDim = "768" }
                     default     { $embDefaultModel = "text-embedding-3-small" }
                 }
                 Write-Info "Using same provider as LLM: $($script:EmbedderProvider)"

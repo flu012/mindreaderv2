@@ -105,8 +105,9 @@ npm start        # http://localhost:18900
 | OpenAI | `gpt-4o-mini` | 否 | 最广泛可用 |
 | DashScope（阿里巴巴） | `qwen3.5-flash` | 是（内置） | 自我进化功能的最佳选择 |
 | Anthropic | `claude-sonnet-4-6` | 否 | 原生 API 支持 |
+| Ollama | `llama3.2` | 否 | 免费、完全本地运行、无需 API 密钥 |
 
-> 自我进化功能使用支持内置网络搜索的模型（如 DashScope 的 Qwen 系列）效果显著更好。
+> 自我进化功能使用支持内置网络搜索的模型（如 DashScope 的 Qwen 系列）效果显著更好。Ollama 适合注重隐私、所有数据留在本地的场景。
 
 ---
 

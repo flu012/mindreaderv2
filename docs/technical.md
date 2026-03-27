@@ -185,6 +185,7 @@ Configuration is stored in `.env` at the monorepo root. The setup wizard generat
 | OpenAI | Supported | `gpt-4o-mini` | No | Most widely available |
 | DashScope (Alibaba) | Supported | `qwen3.5-flash` | Yes (built-in) | Best for evolve feature |
 | Anthropic | Supported (native) | `claude-sonnet-4-6` | No | Uses native Anthropic SDK |
+| Ollama | Supported | `llama3.2` | No | Free, local, no API key. Embeddings via `nomic-embed-text` |
 
 ## Development
 

@@ -15,6 +15,11 @@
       "baseUrlIntl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
       "defaultModel": "qwen3.5-flash",
       "models": ["qwen3.5-flash", "qwen3.5-plus"]
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "defaultModel": "llama3.2",
+      "models": ["llama3.2", "qwen2.5", "mistral", "gemma2", "phi3"]
     }
   },
   "embedder": {
@@ -26,6 +31,11 @@
       "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "baseUrlIntl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
       "defaultModel": "text-embedding-v4"
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "defaultModel": "nomic-embed-text",
+      "defaultDim": 768
     }
   }
 }

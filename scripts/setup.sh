@@ -365,6 +365,7 @@ step_llm() {
     echo "  1) OpenAI    — gpt-4o-mini (default)"
     echo "  2) Anthropic — claude-sonnet-4-6 (native API support)"
     echo "  3) DashScope — qwen3.5-flash (Alibaba Cloud)"
+    echo "  4) Ollama    — local models (no API key needed)"
     echo
 
     local llm_choice
@@ -396,6 +397,12 @@ step_llm() {
                 *) LLM_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1" ;;
             esac
             ;;
+        4)
+            LLM_PROVIDER="ollama"
+            LLM_DEFAULT_MODEL="llama3.2"
+            LLM_BASE_URL="$(ask "Ollama URL" "http://localhost:11434/v1")"
+            LLM_API_KEY="ollama"
+            ;;
         *)
             warn "Invalid choice. Defaulting to OpenAI."
             LLM_PROVIDER="openai"
@@ -406,7 +413,9 @@ step_llm() {
 
     info "Default model for ${LLM_PROVIDER}: ${LLM_DEFAULT_MODEL}"
     LLM_MODEL="$(ask "LLM model (press Enter to keep default)" "${LLM_MODEL:-$LLM_DEFAULT_MODEL}")"
-    LLM_API_KEY="$(ask_secret "API key for ${LLM_PROVIDER}" "${LLM_API_KEY:-}")"
+    if [[ "$LLM_PROVIDER" != "ollama" ]]; then
+        LLM_API_KEY="$(ask_secret "API key for ${LLM_PROVIDER}" "${LLM_API_KEY:-}")"
+    fi
 
     # Node Evolve model (optional)
     echo
@@ -423,11 +432,12 @@ step_llm() {
     echo "Select your embedder provider:"
     echo "  1) OpenAI    — text-embedding-3-small"
     echo "  2) DashScope — text-embedding-v4"
-    echo "  3) Same as LLM provider"
+    echo "  3) Ollama    — nomic-embed-text (local)"
+    echo "  4) Same as LLM provider"
     echo
 
     local emb_choice
-    emb_choice="$(ask "Choice" "3")"
+    emb_choice="$(ask "Choice" "4")"
 
     case "$emb_choice" in
         1)
@@ -452,7 +462,14 @@ step_llm() {
             esac
             EMBEDDER_API_KEY="$(ask_secret "API key for DashScope embedder (Enter to reuse LLM key)" "$LLM_API_KEY")"
             ;;
-        3|*)
+        3)
+            EMBEDDER_PROVIDER="ollama"
+            EMBEDDER_DEFAULT_MODEL="nomic-embed-text"
+            EMBEDDER_BASE_URL="$(ask "Ollama URL" "http://localhost:11434/v1")"
+            EMBEDDER_API_KEY="ollama"
+            EMBEDDER_DIM="768"
+            ;;
+        4|*)
             if [[ "$LLM_PROVIDER" == "anthropic" ]]; then
                 warn "Anthropic does not provide an embeddings API."
                 info "Defaulting to OpenAI for embeddings. You'll need an OpenAI API key."
@@ -468,6 +485,7 @@ step_llm() {
                 case "$EMBEDDER_PROVIDER" in
                     openai)    EMBEDDER_DEFAULT_MODEL="text-embedding-3-small" ;;
                     dashscope) EMBEDDER_DEFAULT_MODEL="text-embedding-v4" ;;
+                    ollama)    EMBEDDER_DEFAULT_MODEL="nomic-embed-text"; EMBEDDER_DIM="768" ;;
                     *)         EMBEDDER_DEFAULT_MODEL="text-embedding-3-small" ;;
                 esac
                 info "Using same provider as LLM: ${EMBEDDER_PROVIDER}"

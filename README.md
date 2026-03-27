@@ -105,8 +105,9 @@ npm start        # http://localhost:18900
 | OpenAI | `gpt-4o-mini` | No | Most widely available |
 | DashScope (Alibaba) | `qwen3.5-flash` | Yes (built-in) | Best for self-evolve feature |
 | Anthropic | `claude-sonnet-4-6` | No | Native API support |
+| Ollama | `llama3.2` | No | Free, fully local, no API key needed |
 
-> For the self-evolve feature, a model with built-in web search (like DashScope's Qwen) produces significantly richer results.
+> For the self-evolve feature, a model with built-in web search (like DashScope's Qwen) produces significantly richer results. Ollama is great for privacy-first setups where all data stays on your machine.
 
 ---
 
