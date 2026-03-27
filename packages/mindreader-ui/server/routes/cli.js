@@ -137,9 +137,13 @@ export function registerRoutes(app, ctx) {
   app.post("/api/cli/capture", async (req, res) => {
     try {
       const { messages, captureMaxChars = 4000 } = req.body || {};
+      const msgCount = messages?.length || 0;
+      const totalChars = (messages || []).reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : 0), 0);
+      logger?.info?.(`Capture: ${msgCount} messages, ${totalChars} chars, maxChars=${captureMaxChars}`);
 
       try {
         const result = await preprocessCapture(messages, driver, config, logger);
+        logger?.info?.(`Capture preprocessor: ${result.entityUpdates.length} entity updates, ${result.forGraphiti.length} for Graphiti`);
         if (result.entityUpdates.length === 0 && result.forGraphiti.length === 0) {
           return res.json({ stored: 0, output: "No facts worth storing." });
         }
@@ -150,6 +154,7 @@ export function registerRoutes(app, ctx) {
         // Degrade: old behavior — concat messages, feed raw to Graphiti
         logger?.warn?.(`Capture preprocessor failed, degrading: ${err.message}`);
         const filtered = filterMessages(messages, captureMaxChars);
+        logger?.info?.(`Capture degraded: filtered to ${filtered.length} chars`);
         if (filtered.length < 30) return res.json({ stored: 0 });
         const resp = await mgDaemon("add", {
           content: filtered.slice(0, captureMaxChars),
@@ -159,6 +164,7 @@ export function registerRoutes(app, ctx) {
         res.json({ stored: 1, output: resp.output });
       }
     } catch (err) {
+      logger?.warn?.(`Capture failed: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });

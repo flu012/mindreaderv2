@@ -99,6 +99,7 @@ export function createDaemon(config, logger) {
             if (resp.ok) {
               pending.resolve(resp);
             } else {
+              logger?.warn?.(`daemon error response [${resp.id}]: ${resp.error}`);
               pending.reject(new Error(resp.error || "Daemon command failed"));
             }
           }
@@ -149,13 +150,28 @@ export function createDaemon(config, logger) {
 
     const id = `req_${++_reqCounter}`;
     const req = JSON.stringify({ id, cmd, args }) + "\n";
+    const contentLen = args.content ? args.content.length : 0;
+    logger?.info?.(`daemon >> ${cmd} [${id}] content=${contentLen}c payload=${req.length}b timeout=${timeoutMs}ms`);
+    const sentAt = Date.now();
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         _daemonPending.delete(id);
-        reject(new Error(`Daemon command "${cmd}" timed out after ${timeoutMs}ms`));
+        const err = new Error(`Daemon command "${cmd}" timed out after ${timeoutMs}ms`);
+        logger?.warn?.(`daemon << ${cmd} [${id}] TIMEOUT after ${timeoutMs}ms`);
+        reject(err);
       }, timeoutMs);
-      _daemonPending.set(id, { resolve, reject, timer });
+      _daemonPending.set(id, {
+        resolve: (resp) => {
+          logger?.info?.(`daemon << ${cmd} [${id}] OK ${Date.now() - sentAt}ms`);
+          resolve(resp);
+        },
+        reject: (err) => {
+          logger?.warn?.(`daemon << ${cmd} [${id}] ERROR ${Date.now() - sentAt}ms: ${err.message}`);
+          reject(err);
+        },
+        timer,
+      });
       _daemonProc.stdin.write(req);
     });
   }
