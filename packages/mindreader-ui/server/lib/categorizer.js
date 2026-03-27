@@ -9,7 +9,9 @@
  */
 
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { query } from "../neo4j.js";
+import { venvPython } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Category cache
@@ -221,7 +223,7 @@ The "category" field MUST be one of: ${validKeys.join(", ")}, other`;
         const efa = pm(ef);
 
         const autocatUid = Math.random().toString(36).slice(2, 8);
-        const tmpPrompt = `/tmp/mg_autocat_${Date.now()}_${autocatUid}.json`;
+        const tmpPrompt = path.join(tmpdir(), `mg_autocat_${Date.now()}_${autocatUid}.json`);
         wfs(tmpPrompt, JSON.stringify(prompt));
 
         const pyScript = `
@@ -247,10 +249,10 @@ try:
 except Exception:
     print("[]")
 `;
-        const tmpScript = `/tmp/mg_autocat_${Date.now()}_${autocatUid}.py`;
+        const tmpScript = path.join(tmpdir(), `mg_autocat_${Date.now()}_${autocatUid}.py`);
         wfs(tmpScript, pyScript);
 
-        const venvPython = path.join(config.pythonPath, ".venv/bin/python");
+        const pyExe = venvPython(config.pythonPath);
         const pyEnv = { ...process.env, PYTHONUNBUFFERED: "1" };
         if (config.llmApiKey) pyEnv.LLM_API_KEY = config.llmApiKey;
         if (config.llmBaseUrl) pyEnv.LLM_BASE_URL = config.llmBaseUrl;
@@ -259,7 +261,7 @@ except Exception:
 
         let assignments;
         try {
-          const { stdout } = await efa(venvPython, [tmpScript], { timeout: 30000, env: pyEnv });
+          const { stdout } = await efa(pyExe, [tmpScript], { timeout: 30000, env: pyEnv });
           assignments = JSON.parse(stdout.trim());
         } finally {
           try { uls(tmpScript); } catch {}

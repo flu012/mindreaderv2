@@ -13,8 +13,12 @@ import { spawn } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { venvPython } from "../config.js";
 
 const execFileAsync = promisify(execFile);
+const isWin = process.platform === "win32";
 
 /**
  * Build the Python env object from config, merging with process.env.
@@ -53,17 +57,24 @@ export function createDaemon(config, logger) {
   function _startDaemon() {
     if (_daemonProc) return;
     const pythonDir = config.pythonPath;
-    const bootScript = `/tmp/mg_daemon_boot_${Date.now()}.sh`;
-    writeFileSync(bootScript, [
-      "#!/bin/bash",
-      `cd "${pythonDir}"`,
-      "source .venv/bin/activate",
-      `exec python -u mg_daemon.py`,
-    ].join("\n"), { mode: 0o755 });
-
     const pyEnv = _buildPyEnv(config);
+    const pyExe = venvPython(pythonDir);
+    const daemonScript = join(pythonDir, "mg_daemon.py");
 
-    _daemonProc = spawn("/bin/bash", [bootScript], { env: pyEnv, stdio: ["pipe", "pipe", "pipe"] });
+    let bootScript = null; // only used on Unix
+
+    if (isWin) {
+      _daemonProc = spawn(pyExe, ["-u", daemonScript], { env: pyEnv, cwd: pythonDir, stdio: ["pipe", "pipe", "pipe"] });
+    } else {
+      bootScript = join(tmpdir(), `mg_daemon_boot_${Date.now()}.sh`);
+      writeFileSync(bootScript, [
+        "#!/bin/bash",
+        `cd "${pythonDir}"`,
+        "source .venv/bin/activate",
+        `exec python -u mg_daemon.py`,
+      ].join("\n"), { mode: 0o755 });
+      _daemonProc = spawn("/bin/bash", [bootScript], { env: pyEnv, stdio: ["pipe", "pipe", "pipe"] });
+    }
     _daemonReady = false;
 
     _daemonProc.stdout.on("data", (chunk) => {
@@ -112,7 +123,7 @@ export function createDaemon(config, logger) {
         pending.reject(new Error("Daemon exited"));
       }
       _daemonPending.clear();
-      try { unlinkSync(bootScript); } catch {}
+      if (bootScript) try { unlinkSync(bootScript); } catch {}
     });
   }
 
@@ -152,8 +163,27 @@ export function createDaemon(config, logger) {
   // Fallback for commands not yet supported by daemon
   async function mgExec(args, timeoutMs = 30000) {
     const pythonDir = config.pythonPath;
+    const pyEnv = _buildPyEnv(config);
+    const pyExe = venvPython(pythonDir);
+    const cliScript = join(pythonDir, "mg_cli.py");
+
+    if (isWin) {
+      try {
+        const { stdout } = await execFileAsync(pyExe, ["-u", cliScript, ...args], {
+          timeout: timeoutMs,
+          env: pyEnv,
+          cwd: pythonDir,
+        });
+        return stdout.trim();
+      } catch (err) {
+        if (err.stdout?.trim()) return err.stdout.trim();
+        throw new Error(`mg CLI error: ${err.stderr || err.message}`);
+      }
+    }
+
+    // Unix: use bash script to activate venv
     const uid = Math.random().toString(36).slice(2, 8);
-    const tmpScript = `/tmp/mg_exec_${Date.now()}_${uid}.sh`;
+    const tmpScript = join(tmpdir(), `mg_exec_${Date.now()}_${uid}.sh`);
     try {
       writeFileSync(tmpScript, [
         "#!/bin/bash",
@@ -161,8 +191,6 @@ export function createDaemon(config, logger) {
         "source .venv/bin/activate",
         `exec python -u mg_cli.py "$@"`,
       ].join("\n"), { mode: 0o755 });
-
-      const pyEnv = _buildPyEnv(config);
 
       const { stdout } = await execFileAsync("/bin/bash", [tmpScript, ...args], {
         timeout: timeoutMs,

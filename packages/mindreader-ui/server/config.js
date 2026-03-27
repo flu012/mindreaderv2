@@ -3,7 +3,7 @@
  * Reads .env from monorepo root + config/providers.json to resolve provider settings.
  */
 import { config as dotenvConfig } from "dotenv";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Monorepo root is 3 levels up from packages/mindreader-ui/server/
 const MONOREPO_ROOT = path.resolve(__dirname, "../../..");
+
+/** Resolve the venv python executable path (cross-platform). */
+export function venvPython(pythonDir) {
+  const winPath = path.join(pythonDir, ".venv", "Scripts", "python.exe");
+  if (process.platform === "win32" && existsSync(winPath)) return winPath;
+  return path.join(pythonDir, ".venv", "bin", "python");
+}
 
 export function loadConfig(overrides = {}) {
   // Load .env from monorepo root
@@ -37,6 +44,7 @@ export function loadConfig(overrides = {}) {
   const defaultPythonPath = path.resolve(__dirname, "../../mindgraph/python");
 
   return {
+    isWin: process.platform === "win32",
     neo4jUri: overrides.neo4jUri || process.env.NEO4J_URI || "bolt://localhost:7687",
     neo4jUser: overrides.neo4jUser || process.env.NEO4J_USER || "neo4j",
     neo4jPassword: overrides.neo4jPassword || process.env.NEO4J_PASSWORD || "",

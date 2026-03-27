@@ -2,10 +2,12 @@
  * Entity routes — all /api/entity/:name routes + /api/merge + /api/link
  */
 import path from "node:path";
+import { tmpdir } from "node:os";
 import neo4j from "neo4j-driver";
 import { query, nodeToPlain, relToPlain } from "../neo4j.js";
 import { categorizeEntity } from "../lib/categorizer.js";
 import { EXTRACTION_INSTRUCTIONS } from "../lib/preprocessor.js";
+import { venvPython } from "../config.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger, mgDaemon } = ctx;
@@ -182,7 +184,7 @@ Write a 200-word summary:`;
       const execFileAsync = promisify(execFile);
 
       const sumUid = Math.random().toString(36).slice(2, 8);
-      const tmpPrompt = `/tmp/mg_summarize_${Date.now()}_${sumUid}.json`;
+      const tmpPrompt = path.join(tmpdir(), `mg_summarize_${Date.now()}_${sumUid}.json`);
       writeFileSync(tmpPrompt, JSON.stringify(llmPrompt));
 
       const extractModel = config.llmExtractModel || config.llmModel;
@@ -205,7 +207,7 @@ else:
     print(resp.choices[0].message.content.strip())
 `;
 
-      const tmpScript = `/tmp/mg_summarize_${Date.now()}_${sumUid}.py`;
+      const tmpScript = path.join(tmpdir(), `mg_summarize_${Date.now()}_${sumUid}.py`);
       writeFileSync(tmpScript, pyScript);
 
       const pyEnv = { ...process.env, PYTHONUNBUFFERED: "1" };
@@ -215,8 +217,8 @@ else:
       pyEnv.MG_PROMPT_FILE = tmpPrompt;
       pyEnv.MG_MODEL = extractModel;
 
-      const venvPython = path.join(config.pythonPath, ".venv/bin/python");
-      const { stdout } = await execFileAsync(venvPython, [tmpScript], {
+      const pyExe = venvPython(config.pythonPath);
+      const { stdout } = await execFileAsync(pyExe, [tmpScript], {
         timeout: 120000,
         env: pyEnv,
       });

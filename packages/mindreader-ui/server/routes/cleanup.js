@@ -2,8 +2,10 @@
  * Cleanup routes — /api/cleanup/*, /api/relationships/*
  */
 import path from "node:path";
+import { tmpdir } from "node:os";
 import neo4j from "neo4j-driver";
 import { query } from "../neo4j.js";
+import { venvPython } from "../config.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger } = ctx;
@@ -432,7 +434,7 @@ If no issues are found, return an empty array: []`;
         const efa = pm(ef);
 
         const reviewUid = Math.random().toString(36).slice(2, 8);
-        const tmpPrompt = `/tmp/mg_relreview_${Date.now()}_${reviewUid}.json`;
+        const tmpPrompt = path.join(tmpdir(), `mg_relreview_${Date.now()}_${reviewUid}.json`);
         wfs(tmpPrompt, JSON.stringify(prompt));
 
         const pyScript = `
@@ -469,10 +471,10 @@ try:
 except Exception:
     print("[]")
 `;
-        const tmpScript = `/tmp/mg_relreview_${Date.now()}_${reviewUid}.py`;
+        const tmpScript = path.join(tmpdir(), `mg_relreview_${Date.now()}_${reviewUid}.py`);
         wfs(tmpScript, pyScript);
 
-        const venvPython = path.join(config.pythonPath, ".venv/bin/python");
+        const pyExe = venvPython(config.pythonPath);
         const pyEnv = { ...process.env, PYTHONUNBUFFERED: "1" };
         if (config.llmApiKey) pyEnv.LLM_API_KEY = config.llmApiKey;
         if (config.llmBaseUrl) pyEnv.LLM_BASE_URL = config.llmBaseUrl;
@@ -482,7 +484,7 @@ except Exception:
 
         let llmIssues;
         try {
-          const { stdout } = await efa(venvPython, [tmpScript], { timeout: 60000, env: pyEnv });
+          const { stdout } = await efa(pyExe, [tmpScript], { timeout: 60000, env: pyEnv });
           llmIssues = JSON.parse(stdout.trim());
         } finally {
           try { uls(tmpScript); } catch {}

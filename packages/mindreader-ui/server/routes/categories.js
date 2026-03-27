@@ -2,9 +2,11 @@
  * Category routes — /api/categories/* + /api/recategorize
  */
 import path from "node:path";
+import { tmpdir } from "node:os";
 import neo4j from "neo4j-driver";
 import { query } from "../neo4j.js";
 import { getCategories, categorizeEntity } from "../lib/categorizer.js";
+import { venvPython } from "../config.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger } = ctx;
@@ -290,7 +292,7 @@ Return ONLY a JSON array: [{"idx": 0, "category": "person"}, ...]`;
         const efa = pm(ef);
 
         const recatUid = Math.random().toString(36).slice(2, 8);
-        const tmpPrompt = `/tmp/mg_recat_${Date.now()}_${recatUid}.json`;
+        const tmpPrompt = path.join(tmpdir(), `mg_recat_${Date.now()}_${recatUid}.json`);
         wfs(tmpPrompt, JSON.stringify(prompt));
 
         const pyScript = `
@@ -327,10 +329,10 @@ try:
 except Exception:
     print("[]")
 `;
-        const tmpScript = `/tmp/mg_recat_${Date.now()}_${recatUid}.py`;
+        const tmpScript = path.join(tmpdir(), `mg_recat_${Date.now()}_${recatUid}.py`);
         wfs(tmpScript, pyScript);
 
-        const venvPython = path.join(config.pythonPath, ".venv/bin/python");
+        const pyExe = venvPython(config.pythonPath);
         const pyEnv = { ...process.env, PYTHONUNBUFFERED: "1" };
         if (config.llmApiKey) pyEnv.LLM_API_KEY = config.llmApiKey;
         if (config.llmBaseUrl) pyEnv.LLM_BASE_URL = config.llmBaseUrl;
@@ -340,7 +342,7 @@ except Exception:
 
         let assignments;
         try {
-          const { stdout } = await efa(venvPython, [tmpScript], { timeout: 60000, env: pyEnv });
+          const { stdout } = await efa(pyExe, [tmpScript], { timeout: 60000, env: pyEnv });
           assignments = JSON.parse(stdout.trim());
         } finally {
           try { uls(tmpScript); } catch {}
