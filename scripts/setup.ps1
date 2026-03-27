@@ -299,8 +299,8 @@ function Step-LLM {
             $defaultModel = "qwen3.5-flash"
             Write-Host ""
             Write-Host "Select DashScope region:"
-            Write-Host "  1) China domestic  — coding.dashscope.aliyuncs.com/v1"
-            Write-Host "  2) International   — dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            Write-Host "  1) China domestic  - coding.dashscope.aliyuncs.com/v1"
+            Write-Host "  2) International   - dashscope-intl.aliyuncs.com/compatible-mode/v1"
             Write-Host ""
             $dsRegion = Ask "Region" "1"
             switch ($dsRegion) {
@@ -351,8 +351,8 @@ function Step-LLM {
             $embDefaultModel = "text-embedding-v4"
             Write-Host ""
             Write-Host "Select DashScope region:"
-            Write-Host "  1) China domestic  — coding.dashscope.aliyuncs.com/v1"
-            Write-Host "  2) International   — dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            Write-Host "  1) China domestic  - coding.dashscope.aliyuncs.com/v1"
+            Write-Host "  2) International   - dashscope-intl.aliyuncs.com/compatible-mode/v1"
             Write-Host ""
             $dsEmbRegion = Ask "Region" "1"
             switch ($dsEmbRegion) {
@@ -815,7 +815,7 @@ function Check-Prerequisites {
         $allOk = $false
     }
 
-    # Python — Windows has "python" app execution aliases that redirect to
+    # Python - Windows has "python" app execution aliases that redirect to
     # the Microsoft Store instead of running Python. We must detect and skip those.
     $pyFound = $false
     foreach ($pyName in @("python3", "python")) {
@@ -825,7 +825,7 @@ function Check-Prerequisites {
         # Skip Windows Store stub aliases (WindowsApps path)
         if ($pyCmd.Source -match 'WindowsApps') { continue }
 
-        # Try running it — wrap in try/catch because Store stubs throw errors
+        # Try running it - wrap in try/catch because Store stubs throw errors
         try {
             $pyVerStr = & $pyCmd.Source --version 2>&1 | Out-String
             if ($pyVerStr -match '(\d+)\.(\d+)') {
@@ -846,7 +846,7 @@ function Check-Prerequisites {
                 }
             }
         } catch {
-            # Store stub or broken install — skip and try next
+            # Store stub or broken install - skip and try next
             continue
         }
     }
