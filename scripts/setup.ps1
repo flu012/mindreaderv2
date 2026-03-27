@@ -443,11 +443,12 @@ function Verify-LLM {
 
     if ($script:LlmProvider -eq "anthropic") {
         $testCode = @"
-import os
+import os, sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 try:
     import anthropic
 except ImportError:
-    import subprocess, sys
+    import subprocess
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'anthropic'])
     import anthropic
 c = anthropic.Anthropic(api_key=os.environ['LLM_API_KEY'])
@@ -456,11 +457,12 @@ print('OK:', r.content[0].text)
 "@
     } else {
         $testCode = @"
-import os
+import os, sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 try:
     from openai import OpenAI
 except ImportError:
-    import subprocess, sys
+    import subprocess
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'openai'])
     from openai import OpenAI
 c = OpenAI(api_key=os.environ['LLM_API_KEY'], base_url=os.environ['LLM_BASE_URL'])
