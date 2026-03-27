@@ -93,7 +93,13 @@ export function registerRoutes(app, ctx) {
       const { prompt, limit = 5 } = req.body || {};
       if (!prompt || prompt.length < 10) return res.json({ context: null });
 
-      const resp = await mgDaemon("search", { query: prompt, limit: Number(limit), json_output: true }, 30000);
+      let resp;
+      try {
+        resp = await mgDaemon("search", { query: prompt, limit: Number(limit), json_output: true }, 30000);
+      } catch (daemonErr) {
+        logger?.warn?.("MindReader recall daemon error:", daemonErr.message);
+        return res.json({ context: null });
+      }
       const data = resp.data || { edges: [], entities: [] };
       const edges = data.edges || [];
       const entities = data.entities || [];

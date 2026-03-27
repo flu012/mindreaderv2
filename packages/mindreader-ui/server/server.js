@@ -28,7 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export function createServer(config, logger) {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: "5mb" }));
 
   // Serve static UI files
   const uiDist = path.resolve(__dirname, "../ui/dist");
