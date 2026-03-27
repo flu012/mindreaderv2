@@ -5,6 +5,44 @@
  * All actual logic lives in @mindreader/ui's Express server.
  */
 import { startServer } from "@mindreader/ui";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __pluginDir = dirname(fileURLToPath(import.meta.url));
+
+/** Auto-sync plugin files from monorepo source on startup. */
+function syncPluginFiles(logger) {
+  try {
+    // The extension's node_modules is a junction/symlink to the monorepo root's node_modules.
+    // From there we can find packages/openclaw-plugin (the canonical source).
+    const nmLink = join(__pluginDir, "node_modules");
+    if (!existsSync(nmLink)) return;
+    const monorepoRoot = resolve(nmLink, "..");
+    const monorepoSrc = join(monorepoRoot, "packages", "openclaw-plugin");
+    if (!existsSync(monorepoSrc) || resolve(monorepoSrc) === resolve(__pluginDir)) return;
+
+    const files = ["index.js", "openclaw.plugin.json", "package.json"];
+    let synced = 0;
+    for (const file of files) {
+      const src = join(monorepoSrc, file);
+      const dest = join(__pluginDir, file);
+      if (!existsSync(src)) continue;
+      const srcContent = readFileSync(src);
+      const destContent = existsSync(dest) ? readFileSync(dest) : null;
+      if (!destContent || !srcContent.equals(destContent)) {
+        writeFileSync(dest, srcContent);
+        synced++;
+        logger?.info?.(`MindReader: synced ${file} from monorepo`);
+      }
+    }
+    if (synced > 0) {
+      logger?.info?.(`MindReader: ${synced} plugin file(s) updated. Changes take effect on next restart.`);
+    }
+  } catch (err) {
+    logger?.warn?.(`MindReader: plugin sync failed: ${err.message}`);
+  }
+}
 
 const DEFAULTS = {
   neo4jUri: "bolt://localhost:7687",
@@ -184,6 +222,7 @@ const mindreaderPlugin = {
     api.registerService({
       id: "mindreader",
       async start() {
+        syncPluginFiles(api.logger);
         api.logger.info(`MindReader: started (autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`);
         if (cfg.uiEnabled) {
           try {
