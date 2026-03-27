@@ -22,6 +22,7 @@ import { registerRoutes as registerCleanupRoutes } from "./routes/cleanup.js";
 import { registerRoutes as registerAuditRoutes } from "./routes/audit.js";
 import { registerRoutes as registerTokenRoutes } from "./routes/tokens.js";
 import { registerRoutes as registerCliRoutes } from "./routes/cli.js";
+import { registerRoutes as registerDirectEntityRoutes } from "./routes/directEntity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -91,6 +92,7 @@ export function createServer(config, logger) {
   registerAuditRoutes(app, ctx);
   registerTokenRoutes(app, ctx);
   registerCliRoutes(app, ctx);
+  registerDirectEntityRoutes(app, ctx);
 
   // ========================================================================
   // SPA fallback — MUST be after all route registrations

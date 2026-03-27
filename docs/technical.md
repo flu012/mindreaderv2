@@ -103,6 +103,18 @@ Search across entity names, summaries, and tags from a single search bar (Ctrl+K
 - Filter by category to focus on what matters
 - **6 layout modes** — Force, ForceAtlas2, Radial, Circular, Cluster, Grid
 
+## Direct Entity API
+
+For systems that require precise, deterministic memory management without LLM processing:
+
+```
+POST /api/entities
+```
+
+Create or update entities directly in Neo4j with batch support, optional relationships, and upsert behavior.
+
+See **[Direct Entity API Reference](api-direct-entity.md)** for full documentation with examples.
+
 ## CLI Tool
 
 Full command-line interface for power users and automation:
