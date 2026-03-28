@@ -15,7 +15,9 @@ export function registerRoutes(app, ctx) {
   app.get("/api/graph", async (req, res) => {
     try {
       const { project, type, limit = 500 } = req.query;
+      const showExpired = req.query.showExpired === "true";
       const maxLimit = Math.min(parseInt(limit) || 500, 2000);
+      const entityFilter = showExpired ? "" : "AND n.expired_at IS NULL";
 
       let nodeCypher, linkCypher;
 
@@ -23,11 +25,13 @@ export function registerRoutes(app, ctx) {
         // Filter by project: find entities related to the project
         nodeCypher = `
           MATCH (e:Entity)
-          WHERE toLower(e.name) CONTAINS toLower($project)
-             OR toLower(e.summary) CONTAINS toLower($project)
+          WHERE (toLower(e.name) CONTAINS toLower($project)
+             OR toLower(e.summary) CONTAINS toLower($project))
+             ${showExpired ? "" : "AND e.expired_at IS NULL"}
           WITH collect(e) AS projectNodes
           UNWIND projectNodes AS pn
           OPTIONAL MATCH (pn)-[r:RELATES_TO]-(connected:Entity)
+          WHERE connected.expired_at IS NULL OR $showExpired
           WITH projectNodes, collect(connected) AS connectedNodes
           UNWIND projectNodes + connectedNodes AS n
           RETURN DISTINCT n LIMIT $limit
@@ -41,7 +45,8 @@ export function registerRoutes(app, ctx) {
             AND r.expired_at IS NULL
           RETURN a.uuid AS source, b.uuid AS target,
                  r.name AS label, r.fact AS fact,
-                 r.created_at AS created_at, r.valid_at AS valid_at
+                 r.created_at AS created_at, r.valid_at AS valid_at,
+                 r.strength AS strength
           LIMIT $limit
         `;
       } else {
@@ -52,9 +57,9 @@ export function registerRoutes(app, ctx) {
 
         if (!type || safeType === "Entity") {
           // Fetch entities up to a safe limit, sort in JS after categorization
-          nodeCypher = `MATCH (n:Entity) RETURN n LIMIT 5000`;
+          nodeCypher = `MATCH (n:Entity) WHERE 1=1 ${entityFilter} RETURN n LIMIT 5000`;
         } else {
-          nodeCypher = `MATCH (n:${safeType}) RETURN n LIMIT $limit`;
+          nodeCypher = `MATCH (n:${safeType}) WHERE 1=1 ${entityFilter} RETURN n LIMIT $limit`;
         }
 
         linkCypher = `
@@ -62,12 +67,13 @@ export function registerRoutes(app, ctx) {
           WHERE r.expired_at IS NULL
           RETURN a.uuid AS source, b.uuid AS target,
                  r.name AS label, r.fact AS fact,
-                 r.created_at AS created_at, r.valid_at AS valid_at
+                 r.created_at AS created_at, r.valid_at AS valid_at,
+                 r.strength AS strength
           LIMIT $limit
         `;
       }
 
-      const params = { project: project || "", limit: neo4j.int(maxLimit) };
+      const params = { project: project || "", limit: neo4j.int(maxLimit), showExpired };
 
       const nodeRecords = await query(driver, nodeCypher, params);
       const linkRecords = await query(driver, linkCypher, params);
@@ -84,6 +90,7 @@ export function registerRoutes(app, ctx) {
           tags: Array.isArray(n.tags) ? n.tags : [],
           node_type: n.node_type || "normal",
           created_at: n.created_at,
+          strength: n.strength ?? null,
         };
       });
 
@@ -126,6 +133,8 @@ export function registerRoutes(app, ctx) {
     try {
       const name = req.params.name;
       const depth = Math.min(Math.max(parseInt(req.query.depth) || 2, 1), 4);
+      const showExpired = req.query.showExpired === "true";
+      const egoEntityFilter = showExpired ? "" : "WHERE neighbor.expired_at IS NULL";
 
       // Variable-length relationship pattern for multi-hop BFS
       const nodeRecords = await query(driver, `
@@ -133,6 +142,7 @@ export function registerRoutes(app, ctx) {
         CALL {
           WITH start
           MATCH (start)-[:RELATES_TO*1..${depth}]-(neighbor:Entity)
+          ${egoEntityFilter}
           RETURN neighbor AS n
           UNION
           WITH start
@@ -152,6 +162,7 @@ export function registerRoutes(app, ctx) {
           tags: Array.isArray(n.tags) ? n.tags : [],
           node_type: n.node_type || "normal",
           created_at: n.created_at,
+          strength: n.strength ?? null,
         };
       });
 
@@ -162,7 +173,8 @@ export function registerRoutes(app, ctx) {
         WHERE a.uuid IN $ids AND b.uuid IN $ids AND r.expired_at IS NULL
         RETURN a.uuid AS source, b.uuid AS target,
                r.name AS label, r.fact AS fact,
-               r.created_at AS created_at
+               r.created_at AS created_at,
+               r.strength AS strength
       `, { ids: [...nodeIds] });
 
       const links = linkRecords.map((rec) => ({
@@ -171,6 +183,7 @@ export function registerRoutes(app, ctx) {
         label: rec.label || "",
         fact: rec.fact || "",
         created_at: rec.created_at,
+        strength: rec.strength ?? null,
       }));
 
       res.json({ nodes, links, center: name });
