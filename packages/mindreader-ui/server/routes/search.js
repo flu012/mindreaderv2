@@ -4,9 +4,10 @@
 import neo4j from "neo4j-driver";
 import { query, readQuery, nodeToPlain } from "../neo4j.js";
 import { categorizeEntity } from "../lib/categorizer.js";
+import { reinforceEntities } from "../lib/decay.js";
 
 export function registerRoutes(app, ctx) {
-  const { driver, logger } = ctx;
+  const { driver, config, logger } = ctx;
 
   /**
    * GET /api/search?q=text&limit=10 — Search memories
@@ -39,6 +40,10 @@ export function registerRoutes(app, ctx) {
          LIMIT $limit`,
         { q, limit: neo4j.int(maxLimit) }
       );
+
+      // Reinforce accessed entities (fire-and-forget)
+      const names = (results.map(r => r.e ? nodeToPlain(r.e).name : null)).filter(Boolean);
+      if (names.length > 0) reinforceEntities(driver, names, config.memoryDecayReinforceDelta).catch(() => {});
 
       res.json({
         entities: results.map((r) => nodeToPlain(r.e)),
