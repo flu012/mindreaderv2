@@ -7,8 +7,8 @@ export async function initIndexes(driver, logger) {
   const { query } = await import("./neo4j.js");
   const indexes = [
     {
-      name: "entity_fulltext",
-      cypher: `CREATE FULLTEXT INDEX entity_fulltext IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.summary]`,
+      name: "entity_fulltext_v2",
+      cypher: `CREATE FULLTEXT INDEX entity_fulltext_v2 IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.summary, n.details]`,
     },
     {
       name: "entity_created_at",
@@ -42,6 +42,11 @@ export async function initIndexes(driver, logger) {
       logger?.debug?.(`Index ${idx.name}: ${err.message}`);
     }
   }
+
+  // Drop old fulltext index if superseded by v2
+  try {
+    await query(driver, `DROP INDEX entity_fulltext IF EXISTS`);
+  } catch { /* may not exist */ }
 
   // Sanitize edges: backfill NULL group_id and episodes fields.
   // graphiti-core's EntityEdge pydantic model requires these fields to be non-null.

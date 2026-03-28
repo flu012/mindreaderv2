@@ -30,6 +30,20 @@ const MIGRATIONS = [
              r.last_accessed_at = coalesce(r.created_at, datetime())
          RETURN count(r) AS affected`,
   },
+  {
+    name: "20260328_add_details_field",
+    description: "Add details field to Entity nodes, initialize from summary",
+    up: `MATCH (e:Entity) WHERE e.details IS NULL
+         SET e.details = coalesce(e.summary, "")
+         RETURN count(e) AS affected`,
+  },
+  {
+    name: "20260328_truncate_summary_to_200",
+    description: "Truncate existing summaries to 200 chars (details now holds full content)",
+    up: `MATCH (e:Entity) WHERE e.summary IS NOT NULL AND size(e.summary) > 200
+         SET e.summary = left(e.summary, 200)
+         RETURN count(e) AS affected`,
+  },
 ];
 
 /**
