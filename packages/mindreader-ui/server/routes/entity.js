@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import neo4j from "neo4j-driver";
 import { query, nodeToPlain, relToPlain } from "../neo4j.js";
 import { categorizeEntity } from "../lib/categorizer.js";
+import { reinforceEntity } from "../lib/decay.js";
 import { EXTRACTION_INSTRUCTIONS } from "../lib/preprocessor.js";
 import { venvPython } from "../config.js";
 
@@ -56,6 +57,9 @@ export function registerRoutes(app, ctx) {
           },
         };
       });
+
+      // Reinforce accessed entity (fire-and-forget)
+      reinforceEntity(driver, name, config.memoryDecayReinforceDelta).catch(() => {});
 
       res.json({ entity, relationships });
     } catch (err) {
