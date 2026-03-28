@@ -12,6 +12,7 @@
  */
 
 import { callLLM } from "./llm.js";
+import { synthesizeDetails } from "./details.js";
 
 // Graphiti custom_extraction_instructions — always injected as last line of defense
 export const EXTRACTION_INSTRUCTIONS = `CRITICAL: Attributes are NOT entities. Do NOT create separate entity nodes for:
@@ -231,14 +232,14 @@ function parseClassifyResponse(response, source, project, knownEntityNames) {
 /**
  * Apply a single entity update to Neo4j (add tags + append summary).
  */
-export async function applyEntityUpdate(update, driver) {
+export async function applyEntityUpdate(update, driver, config) {
   if (!update.name) return false;
   const session = driver.session();
   try {
     // Fetch existing tags for deduplication
     const existing = await session.run(
       `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
-       RETURN e.tags AS tags, e.summary AS summary`,
+       RETURN e.tags AS tags, e.summary AS summary, e.details AS details, e.category AS category`,
       { name: update.name }
     );
     if (existing.records.length === 0) return false; // entity not found
@@ -249,17 +250,43 @@ export async function applyEntityUpdate(update, driver) {
     // Deduplicate tags in JS
     const mergedTags = [...new Set([...oldTags, ...update.addTags])];
 
-    // Append summary with separator, cap at 1000 chars
+    // Append summary with separator, cap at 200 chars
     let newSummary = oldSummary;
     if (update.summaryAppend) {
       const sep = oldSummary ? ". " : "";
-      newSummary = (oldSummary + sep + update.summaryAppend).slice(0, 1000);
+      newSummary = (oldSummary + sep + update.summaryAppend).slice(0, 200);
+    }
+
+    // Synthesize details: merge new facts with existing details via LLM
+    const oldDetails = existing.records[0].get("details") || "";
+    const oldCategory = existing.records[0].get("category") || "other";
+    let newDetails = oldDetails;
+    if (update.summaryAppend && config) {
+      try {
+        const synthesized = await synthesizeDetails({
+          entityName: update.name,
+          existingDetails: oldDetails,
+          existingSummary: oldSummary,
+          newFacts: update.summaryAppend,
+          category: oldCategory,
+          tags: mergedTags,
+          config,
+        });
+        newDetails = synthesized.details;
+        newSummary = synthesized.summary;
+      } catch {
+        // Fallback: append to details raw
+        newDetails = oldDetails
+          ? `${oldDetails}\n\n${update.summaryAppend}`
+          : update.summaryAppend;
+        newDetails = newDetails.slice(0, 10000);
+      }
     }
 
     await session.run(
       `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
-       SET e.tags = $tags, e.summary = $summary, e.last_accessed_at = datetime()`,
-      { name: update.name, tags: mergedTags, summary: newSummary }
+       SET e.tags = $tags, e.summary = $summary, e.details = $details, e.last_accessed_at = datetime()`,
+      { name: update.name, tags: mergedTags, summary: newSummary, details: newDetails }
     );
     return true;
   } finally {
@@ -274,7 +301,7 @@ export async function executePreprocessResult(result, driver, mgDaemon, config, 
   // 1. Apply entity updates directly to Neo4j; if entity not found, forward to Graphiti
   for (const update of result.entityUpdates) {
     try {
-      const applied = await applyEntityUpdate(update, driver);
+      const applied = await applyEntityUpdate(update, driver, config);
       if (applied) {
         logger?.info?.(`Preprocessor: updated ${update.name} tags=[${update.addTags}]`);
       } else {
