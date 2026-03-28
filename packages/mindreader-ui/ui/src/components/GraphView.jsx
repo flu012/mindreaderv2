@@ -30,7 +30,7 @@ function dim(hex, alpha = 0.4) {
 }
 
 const GraphView = forwardRef(function GraphView(
-  { data, colors, onNodeClick, selectedNode, onNodeHover, searchQuery: externalSearchQuery, onSearchSelect, layout = "force" },
+  { data, colors, onNodeClick, selectedNode, onNodeHover, searchQuery: externalSearchQuery, onSearchSelect, layout = "force", showDecay = false },
   ref
 ) {
   const containerRef = useRef(null);
@@ -83,7 +83,18 @@ const GraphView = forwardRef(function GraphView(
 
     sigma.setSetting("nodeReducer", (node, attrs) => {
       const baseSize = (attrs.origSize || attrs.size || 7) * zoomScale;
-      if (!activeNode) return { ...attrs, size: baseSize };
+      if (!activeNode) {
+        const s = attrs.strength ?? 1.0;
+        if (showDecay) {
+          // Decay mode: color by strength gradient (green → yellow → red)
+          const r = Math.round(s < 0.5 ? 255 : 255 * (1 - s) * 2);
+          const g = Math.round(s > 0.5 ? 255 : 255 * s * 2);
+          const strengthColor = `rgb(${r},${g},80)`;
+          return { ...attrs, size: baseSize, color: strengthColor };
+        }
+        const alpha = 0.3 + s * 0.7; // strength 1.0 → alpha 1.0, strength 0.0 → alpha 0.3
+        return { ...attrs, size: baseSize, color: dim(attrs.origColor || attrs.color || "#6688aa", alpha) };
+      }
       const res = { ...attrs };
       if (node === activeNode) {
         res.color = lighten(attrs.origColor || attrs.color || "#6688aa", 0.35);
@@ -96,7 +107,8 @@ const GraphView = forwardRef(function GraphView(
         res.zIndex = 5;
         res.highlighted = true;
       } else {
-        res.color = dim(attrs.origColor || attrs.color || "#6688aa", 0.35);
+        const s = attrs.strength ?? 1.0;
+        res.color = dim(attrs.origColor || attrs.color || "#6688aa", 0.15 + s * 0.2);
         res.size = baseSize * 0.85;
         res.zIndex = 0;
       }
@@ -118,7 +130,7 @@ const GraphView = forwardRef(function GraphView(
     });
 
     sigma.refresh();
-  }, [getNodeContext]);
+  }, [getNodeContext, showDecay]);
 
   // Initialize Sigma
   useEffect(() => {
@@ -208,6 +220,11 @@ const GraphView = forwardRef(function GraphView(
     }
   }, [selectedNode, applyHighlight]);
 
+  // Re-apply highlight when showDecay changes
+  useEffect(() => {
+    applyHighlight();
+  }, [showDecay, applyHighlight]);
+
   // Search filter
   useEffect(() => {
     const graph = graphRef.current;
@@ -267,14 +284,19 @@ const GraphView = forwardRef(function GraphView(
       const color = (colors || CATEGORY_COLORS)[node.category] || CATEGORY_COLORS.other;
       const size = GROUP_SIZES[node.category] || GROUP_SIZES.other;
 
+      const isExpired = !!node.expired_at;
+      const strength = isExpired ? 0 : (node.strength ?? 1.0);
+
       graph.addNode(node.id, {
         label: node.name || "unknown",
         x, y,
-        size,
-        color,
-        origColor: color,
-        origSize: size,
+        size: isExpired ? size * 0.7 : size,
+        color: isExpired ? "rgba(100,100,120,0.25)" : color,
+        origColor: isExpired ? "#666678" : color,
+        origSize: isExpired ? size * 0.7 : size,
         category: node.category,
+        strength,
+        expired: isExpired,
       });
     });
 

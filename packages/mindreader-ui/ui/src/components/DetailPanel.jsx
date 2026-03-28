@@ -137,6 +137,38 @@ function CollapsibleSummary({ entityName, savedSummary }) {
   );
 }
 
+function StrengthBar({ strength, lastAccessed, expiredAt }) {
+  const s = strength ?? 1.0;
+  const pct = Math.round(s * 100);
+  const barColor = s > 0.6 ? "#4aff9e" : s > 0.3 ? "#ffdd4a" : "#ff4a4a";
+  const label = expiredAt ? "Expired" : `${pct}%`;
+
+  const lastAccessedText = lastAccessed
+    ? `Last accessed: ${new Date(lastAccessed).toLocaleDateString()}`
+    : null;
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-secondary)", marginBottom: 3 }}>
+        <span>Memory Strength</span>
+        <span style={{ color: expiredAt ? "#ff4a4a" : barColor }}>{label}</span>
+      </div>
+      <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+        <div style={{
+          width: `${pct}%`,
+          height: "100%",
+          borderRadius: 2,
+          background: expiredAt ? "#ff4a4a33" : barColor,
+          transition: "width 0.3s ease",
+        }} />
+      </div>
+      {lastAccessedText && (
+        <div style={{ fontSize: 9, color: "var(--text-secondary)", marginTop: 2 }}>{lastAccessedText}</div>
+      )}
+    </div>
+  );
+}
+
 export default function DetailPanel({ entity, relationships, onClose, onNavigate, groupColors, categoryColors, onRefresh, onEntityUpdate, onDeleteNode, onViewGraph }) {
   const [activeAction, setActiveAction] = useState(null);
   const [showEvolve, setShowEvolve] = useState(false);
@@ -185,6 +217,13 @@ export default function DetailPanel({ entity, relationships, onClose, onNavigate
       {activeAction && activeAction !== "delete" && (
         <ActionPanel mode={activeAction} entityName={entity.name} onDone={(result) => { setActiveAction(null); if (onRefresh) onRefresh(); if (result?.kept && onNavigate) onNavigate(result.kept); }} onCancel={() => setActiveAction(null)} />
       )}
+
+      {/* === Memory Strength === */}
+      <StrengthBar
+        strength={entity.strength}
+        lastAccessed={entity.last_accessed_at}
+        expiredAt={entity.expired_at}
+      />
 
       {/* === Tags === */}
       <TagEditor tags={entity.tags || []} entityName={entity.name} onTagsChanged={onEntityUpdate || onRefresh} />
