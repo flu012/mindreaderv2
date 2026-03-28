@@ -14,6 +14,23 @@ export async function initIndexes(driver, logger) {
       name: "entity_created_at",
       cypher: `CREATE INDEX entity_created_at IF NOT EXISTS FOR (n:Entity) ON (n.created_at)`,
     },
+    // Memory decay indexes
+    {
+      name: "entity_expired_at",
+      cypher: `CREATE INDEX entity_expired_at IF NOT EXISTS FOR (n:Entity) ON (n.expired_at)`,
+    },
+    {
+      name: "entity_strength",
+      cypher: `CREATE INDEX entity_strength IF NOT EXISTS FOR (n:Entity) ON (n.strength)`,
+    },
+    {
+      name: "entity_last_accessed",
+      cypher: `CREATE INDEX entity_last_accessed IF NOT EXISTS FOR (n:Entity) ON (n.last_accessed_at)`,
+    },
+    {
+      name: "rel_strength",
+      cypher: `CREATE INDEX rel_strength IF NOT EXISTS FOR ()-[r:RELATES_TO]-() ON (r.strength)`,
+    },
   ];
 
   for (const idx of indexes) {
@@ -43,5 +60,13 @@ export async function initIndexes(driver, logger) {
     }
   } catch (err) {
     logger?.warn?.(`Edge sanitization failed: ${err.message}`);
+  }
+
+  // Run schema migrations
+  try {
+    const { runMigrations } = await import("./lib/migrations.js");
+    await runMigrations(driver, logger);
+  } catch (err) {
+    logger?.warn?.(`Migration runner failed: ${err.message}`);
   }
 }
