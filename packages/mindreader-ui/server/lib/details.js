@@ -6,6 +6,7 @@
  */
 
 import { callLLM } from "./llm.js";
+import { MAX_SUMMARY_LENGTH, MAX_DETAILS_LENGTH } from "./constants.js";
 
 /**
  * Synthesize updated details by merging new facts with existing details.
@@ -48,8 +49,8 @@ Return JSON:
   try {
     const result = await callLLM({ prompt, config, jsonMode: true, timeoutMs: 15000 });
     return {
-      details: (typeof result.details === "string" ? result.details : "").slice(0, 10000),
-      summary: (typeof result.summary === "string" ? result.summary : "").slice(0, 200),
+      details: (typeof result.details === "string" ? result.details : "").slice(0, MAX_DETAILS_LENGTH),
+      summary: (typeof result.summary === "string" ? result.summary : "").slice(0, MAX_SUMMARY_LENGTH),
     };
   } catch (err) {
     // On LLM failure, append raw facts to details
@@ -57,7 +58,7 @@ Return JSON:
       ? `${existingDetails}\n\n---\n\n${newFacts}`
       : newFacts;
     return {
-      details: fallbackDetails.slice(0, 10000),
+      details: fallbackDetails.slice(0, MAX_DETAILS_LENGTH),
       summary: existingSummary || entityName,
     };
   }
