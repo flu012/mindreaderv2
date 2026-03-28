@@ -9,6 +9,7 @@ import { categorizeEntity } from "../lib/categorizer.js";
 import { reinforceEntity } from "../lib/decay.js";
 import { EXTRACTION_INSTRUCTIONS } from "../lib/preprocessor.js";
 import { synthesizeDetails } from "../lib/details.js";
+import { MAX_DETAILS_LENGTH } from "../lib/constants.js";
 import { venvPython } from "../config.js";
 
 export function registerRoutes(app, ctx) {
@@ -97,7 +98,7 @@ export function registerRoutes(app, ctx) {
       }
       if (details !== undefined) {
         setClauses.push("e.details = $details");
-        params.details = String(details).slice(0, 10000);
+        params.details = String(details).slice(0, MAX_DETAILS_LENGTH);
       }
       if (node_type !== undefined) {
         setClauses.push("e.node_type = $node_type");
@@ -978,7 +979,7 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 new e
       if (typeof details !== "string") {
         return res.status(400).json({ error: "Missing 'details' string in body" });
       }
-      const trimmed = details.slice(0, 10000);
+      const trimmed = details.slice(0, MAX_DETAILS_LENGTH);
       await query(driver,
         `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
          SET e.details = $details, e.last_accessed_at = datetime()`,
