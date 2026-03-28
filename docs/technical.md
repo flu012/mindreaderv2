@@ -103,6 +103,50 @@ Search across entity names, summaries, and tags from a single search bar (Ctrl+K
 - Filter by category to focus on what matters
 - **6 layout modes** — Force, ForceAtlas2, Radial, Circular, Cluster, Grid
 
+## Memory Decay — Temporal Lifecycle
+
+Memories decay over time unless reinforced by access. This keeps the knowledge graph fresh and prevents stale data from cluttering recall results.
+
+### How It Works
+
+1. **Strength decay**: Every entity and relationship has a `strength` field (0.0-1.0). Strength decays exponentially based on time since last access: `strength = exp(-lambda * days_since_last_access)`. Default lambda=0.03 gives a ~23-day half-life.
+
+2. **Access reinforcement**: When an entity is accessed (search, recall, detail view), its strength is boosted and `last_accessed_at` is reset. Frequently-used memories stay strong.
+
+3. **Auto-expiry**: When strength drops below the threshold (default 0.1), the item is soft-expired via `expired_at` timestamp. It's hidden from normal queries but preserved for history.
+
+4. **Cascade expiry**: When all relationships of an entity are expired, the entity is auto-expired too.
+
+5. **Contradiction expiry**: Handled by Graphiti — when new info contradicts an existing edge, the old edge is invalidated immediately regardless of strength.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEMORY_DECAY_ENABLED` | `true` | Enable/disable the decay system |
+| `MEMORY_DECAY_INTERVAL_MS` | `3600000` (1hr) | How often the decay job runs |
+| `MEMORY_DECAY_LAMBDA` | `0.03` | Decay rate (~23-day half-life) |
+| `MEMORY_DECAY_THRESHOLD` | `0.1` | Auto-expire below this strength |
+| `MEMORY_DECAY_REINFORCE_DELTA` | `0.3` | Strength boost on access |
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/decay/status` | GET | Decay statistics and config |
+| `/api/decay/run` | POST | Manually trigger a decay cycle |
+| `/api/decay/restore/:name` | POST | Un-expire an entity and its relationships |
+
+### Time-Travel Support
+
+All expiry is soft-delete. The data model supports future time-travel queries:
+
+```
+-- Show the graph as of March 1
+WHERE e.created_at <= datetime('2026-03-01')
+  AND (e.expired_at IS NULL OR e.expired_at > datetime('2026-03-01'))
+```
+
 ## Direct Entity API
 
 For systems that require precise, deterministic memory management without LLM processing:
