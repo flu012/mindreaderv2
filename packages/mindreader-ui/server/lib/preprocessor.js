@@ -258,7 +258,7 @@ export async function applyEntityUpdate(update, driver) {
 
     await session.run(
       `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
-       SET e.tags = $tags, e.summary = $summary`,
+       SET e.tags = $tags, e.summary = $summary, e.last_accessed_at = datetime()`,
       { name: update.name, tags: mergedTags, summary: newSummary }
     );
     return true;

@@ -109,7 +109,8 @@ export function registerRoutes(app, ctx) {
                 `CREATE (e:Entity {
                   uuid: $uuid, name: $name, summary: $summary,
                   category: $category, tags: $tags,
-                  created_at: datetime($now), node_type: "normal"
+                  created_at: datetime($now), node_type: "normal",
+                  strength: 1.0, last_accessed_at: datetime($now), expired_at: null
                 })`,
                 { uuid: randomUUID(), name, summary, category: category || "other", tags, now }
               );
@@ -129,7 +130,8 @@ export function registerRoutes(app, ctx) {
                   `MERGE (t:Entity {name: $targetName})
                    ON CREATE SET t.uuid = $uuid, t.summary = "",
                      t.category = "other", t.tags = [],
-                     t.created_at = datetime($now), t.node_type = "normal"`,
+                     t.created_at = datetime($now), t.node_type = "normal",
+                     t.strength = 1.0, t.last_accessed_at = datetime($now), t.expired_at = null`,
                   { targetName, uuid: randomUUID(), now }
                 );
 
@@ -139,7 +141,8 @@ export function registerRoutes(app, ctx) {
                    MATCH (b:Entity) WHERE toLower(b.name) = toLower($target)
                    CREATE (a)-[:RELATES_TO {
                      name: $relType, fact: $fact,
-                     created_at: datetime($now)
+                     created_at: datetime($now),
+                     strength: 1.0, last_accessed_at: datetime($now)
                    }]->(b)`,
                   { source: name, target: targetName, relType, fact, now }
                 );
