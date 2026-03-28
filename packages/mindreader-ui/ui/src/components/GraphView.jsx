@@ -83,7 +83,11 @@ const GraphView = forwardRef(function GraphView(
 
     sigma.setSetting("nodeReducer", (node, attrs) => {
       const baseSize = (attrs.origSize || attrs.size || 7) * zoomScale;
-      if (!activeNode) return { ...attrs, size: baseSize };
+      if (!activeNode) {
+        const s = attrs.strength ?? 1.0;
+        const alpha = 0.3 + s * 0.7; // strength 1.0 → alpha 1.0, strength 0.0 → alpha 0.3
+        return { ...attrs, size: baseSize, color: dim(attrs.origColor || attrs.color || "#6688aa", alpha) };
+      }
       const res = { ...attrs };
       if (node === activeNode) {
         res.color = lighten(attrs.origColor || attrs.color || "#6688aa", 0.35);
@@ -96,7 +100,8 @@ const GraphView = forwardRef(function GraphView(
         res.zIndex = 5;
         res.highlighted = true;
       } else {
-        res.color = dim(attrs.origColor || attrs.color || "#6688aa", 0.35);
+        const s = attrs.strength ?? 1.0;
+        res.color = dim(attrs.origColor || attrs.color || "#6688aa", 0.15 + s * 0.2);
         res.size = baseSize * 0.85;
         res.zIndex = 0;
       }
@@ -275,6 +280,7 @@ const GraphView = forwardRef(function GraphView(
         origColor: color,
         origSize: size,
         category: node.category,
+        strength: node.strength ?? 1.0,
       });
     });
 
