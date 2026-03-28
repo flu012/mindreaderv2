@@ -30,7 +30,7 @@ function dim(hex, alpha = 0.4) {
 }
 
 const GraphView = forwardRef(function GraphView(
-  { data, colors, onNodeClick, selectedNode, onNodeHover, searchQuery: externalSearchQuery, onSearchSelect, layout = "force" },
+  { data, colors, onNodeClick, selectedNode, onNodeHover, searchQuery: externalSearchQuery, onSearchSelect, layout = "force", showDecay = false },
   ref
 ) {
   const containerRef = useRef(null);
@@ -85,6 +85,13 @@ const GraphView = forwardRef(function GraphView(
       const baseSize = (attrs.origSize || attrs.size || 7) * zoomScale;
       if (!activeNode) {
         const s = attrs.strength ?? 1.0;
+        if (showDecay) {
+          // Decay mode: color by strength gradient (green → yellow → red)
+          const r = Math.round(s < 0.5 ? 255 : 255 * (1 - s) * 2);
+          const g = Math.round(s > 0.5 ? 255 : 255 * s * 2);
+          const strengthColor = `rgb(${r},${g},80)`;
+          return { ...attrs, size: baseSize, color: strengthColor };
+        }
         const alpha = 0.3 + s * 0.7; // strength 1.0 → alpha 1.0, strength 0.0 → alpha 0.3
         return { ...attrs, size: baseSize, color: dim(attrs.origColor || attrs.color || "#6688aa", alpha) };
       }
@@ -123,7 +130,7 @@ const GraphView = forwardRef(function GraphView(
     });
 
     sigma.refresh();
-  }, [getNodeContext]);
+  }, [getNodeContext, showDecay]);
 
   // Initialize Sigma
   useEffect(() => {
@@ -212,6 +219,11 @@ const GraphView = forwardRef(function GraphView(
       applyHighlight();
     }
   }, [selectedNode, applyHighlight]);
+
+  // Re-apply highlight when showDecay changes
+  useEffect(() => {
+    applyHighlight();
+  }, [showDecay, applyHighlight]);
 
   // Search filter
   useEffect(() => {

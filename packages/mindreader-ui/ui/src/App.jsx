@@ -36,6 +36,7 @@ export default function App() {
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [hiddenTypes, setHiddenTypes] = useState(new Set());
   const [graphLayout, setGraphLayout] = useState("force");
+  const [showDecay, setShowDecay] = useState(false);
   const [egoGraph, setEgoGraph] = useState(null); // { data, center } when viewing ego subgraph
   const [refreshKey, setRefreshKey] = useState(0);
   const [dynamicCategories, setDynamicCategories] = useState(null);
@@ -342,6 +343,22 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+                {/* Decay mode toggle */}
+                <div style={{
+                  position: "absolute", top: 10, right: 10, zIndex: 20,
+                  background: "rgba(20,20,30,0.85)", borderRadius: 8, padding: "6px 12px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: "var(--text-secondary)" }}>
+                    <input
+                      type="checkbox"
+                      checked={showDecay}
+                      onChange={(e) => setShowDecay(e.target.checked)}
+                      style={{ accentColor: "#4aff9e" }}
+                    />
+                    Show Decay
+                  </label>
+                </div>
                 {/* Categories filter */}
                 <div style={{
                   position: "absolute", bottom: 16, left: 16, zIndex: 100,
@@ -402,6 +419,7 @@ export default function App() {
                   searchQuery={searchQuery}
                   onSearchSelect={() => setSearchQuery("")}
                   layout={graphLayout}
+                  showDecay={showDecay}
                 />
                 {hoveredNode && !selectedNode && (
                   <HoverTooltip node={hoveredNode} position={tooltipPos} />
