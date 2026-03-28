@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import GraphView from "./components/GraphView";
 import DetailPanel from "./components/DetailPanel";
 import HoverTooltip from "./components/HoverTooltip";
-// import Minimap from "./components/Minimap";
 import ListView from "./components/ListView";
 import TimelineView from "./components/TimelineView";
 import CategoryView from "./components/CategoryView";
@@ -425,7 +424,6 @@ export default function App() {
                 {hoveredNode && !selectedNode && (
                   <HoverTooltip node={hoveredNode} position={tooltipPos} />
                 )}
-                {/* Minimap removed */}
               </div>
             )}
 
