@@ -162,6 +162,7 @@ export function startServer(configOverrides, logger, { eagerDaemon = false } = {
     autoCategorizer.stop();
     decayJob.stop();
     if (app._stopDaemon) app._stopDaemon();
+    closeDriver();
   });
 
   server.on("error", (err) => {
