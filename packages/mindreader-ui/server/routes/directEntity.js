@@ -71,13 +71,14 @@ export function registerRoutes(app, ctx) {
             const name = entity.name.trim();
             const tags = (entity.tags || []).map(t => String(t).toLowerCase().trim()).filter(Boolean);
             const summary = (entity.summary || "").trim();
+            const details = (entity.details || "").trim().slice(0, 10000);
             const category = (entity.category || "").toLowerCase().trim() || null;
             const now = new Date().toISOString();
 
             // Check if entity exists
             const existing = await session.run(
               `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
-               RETURN e.uuid AS uuid, e.tags AS tags, e.summary AS summary`,
+               RETURN e.uuid AS uuid, e.tags AS tags, e.summary AS summary, e.details AS details`,
               { name }
             );
 
@@ -92,14 +93,16 @@ export function registerRoutes(app, ctx) {
                 const sep = oldSummary ? ". " : "";
                 newSummary = (oldSummary + sep + summary).slice(0, 2000);
               }
+              const oldDetails = existing.records[0].get("details") || "";
+              let newDetails = details || oldDetails;
 
               const setClause = category
-                ? "SET e.tags = $tags, e.summary = $summary, e.category = $category"
-                : "SET e.tags = $tags, e.summary = $summary";
+                ? "SET e.tags = $tags, e.summary = $summary, e.details = $details, e.category = $category"
+                : "SET e.tags = $tags, e.summary = $summary, e.details = $details";
 
               await session.run(
                 `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) ${setClause}`,
-                { name, tags: mergedTags, summary: newSummary, category }
+                { name, tags: mergedTags, summary: newSummary, details: newDetails, category }
               );
               status = "updated";
               updatedCount++;
@@ -107,12 +110,12 @@ export function registerRoutes(app, ctx) {
               // Create new entity
               await session.run(
                 `CREATE (e:Entity {
-                  uuid: $uuid, name: $name, summary: $summary,
+                  uuid: $uuid, name: $name, summary: $summary, details: $details,
                   category: $category, tags: $tags,
                   created_at: datetime($now), node_type: "normal",
                   strength: 1.0, last_accessed_at: datetime($now), expired_at: null
                 })`,
-                { uuid: randomUUID(), name, summary, category: category || "other", tags, now }
+                { uuid: randomUUID(), name, summary, details, category: category || "other", tags, now }
               );
               status = "created";
               createdCount++;
@@ -128,7 +131,7 @@ export function registerRoutes(app, ctx) {
                 // MERGE target entity (create if it doesn't exist)
                 await session.run(
                   `MERGE (t:Entity {name: $targetName})
-                   ON CREATE SET t.uuid = $uuid, t.summary = "",
+                   ON CREATE SET t.uuid = $uuid, t.summary = "", t.details = "",
                      t.category = "other", t.tags = [],
                      t.created_at = datetime($now), t.node_type = "normal",
                      t.strength = 1.0, t.last_accessed_at = datetime($now), t.expired_at = null`,
