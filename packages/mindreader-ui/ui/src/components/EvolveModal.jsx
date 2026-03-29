@@ -30,6 +30,9 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null); // { name, category, summary, tags, x, y }
+  const [currentRound, setCurrentRound] = useState(0);
+  const [allDiscoveredEntities, setAllDiscoveredEntities] = useState([]); // names across all rounds
+  const [allDiscoveredRels, setAllDiscoveredRels] = useState([]); // {source,target,label} across all rounds
 
   const abortRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -206,7 +209,14 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
       const res = await fetch(`/api/entity/${encodeURIComponent(entityName)}/evolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ focusQuestion: focusQuestion.trim() || undefined }),
+        body: JSON.stringify({
+          focusQuestion: focusQuestion.trim() || undefined,
+          previousDiscoveries: currentRound > 0 ? {
+            entities: allDiscoveredEntities,
+            relationships: allDiscoveredRels,
+            round: currentRound,
+          } : undefined,
+        }),
         signal: abortCtrl.signal,
       });
 
@@ -272,6 +282,144 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
               addRelToGraph(data);
               break;
             }
+            case "round":
+              items.push({ type: "round", data });
+              setFeedItems([...items]);
+              setCurrentRound(data.round);
+              break;
+            case "phase":
+              items.push({ type: "phase", data });
+              setFeedItems([...items]);
+              break;
+            case "done":
+              setTokenInfo(data);
+              break;
+            case "error":
+              setError(data.message);
+              break;
+          }
+        }
+      }
+
+      setPhase("review");
+
+      // Accumulate discoveries for multi-round context
+      setAllDiscoveredEntities(prev => [...prev, ...discoveredEntities.map(e => e.name)]);
+      setAllDiscoveredRels(prev => [...prev, ...discoveredRels.map(r => ({ source: r.source, target: r.target, label: r.label }))]);
+    } catch (err) {
+      if (err.name === "AbortError") {
+        // User stopped — show partial results for review
+        setPhase("review");
+      } else {
+        setError(err.message);
+        setPhase("review");
+      }
+    }
+  }, [entityName, focusQuestion, addEntityToGraph, addRelToGraph, currentRound, allDiscoveredEntities, allDiscoveredRels]);
+
+  // Stop streaming
+  const handleStop = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
+
+  // Run another round (appends to existing discoveries)
+  const handleNextRound = useCallback(async () => {
+    setPhase("streaming");
+    setError(null);
+    setTokenInfo(null);
+
+    const abortCtrl = new AbortController();
+    abortRef.current = abortCtrl;
+
+    // Build previous discoveries from current accumulated state
+    const prevEntNames = [...allDiscoveredEntities, ...entities.map(e => e.name)];
+    const prevRels = [...allDiscoveredRels, ...relationships.map(r => ({ source: r.source, target: r.target, label: r.label }))];
+    const nextRound = currentRound;
+
+    // Accumulate before starting new round
+    setAllDiscoveredEntities(prevEntNames);
+    setAllDiscoveredRels(prevRels);
+
+    try {
+      const res = await fetch(`/api/entity/${encodeURIComponent(entityName)}/evolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          focusQuestion: focusQuestion.trim() || undefined,
+          previousDiscoveries: {
+            entities: prevEntNames,
+            relationships: prevRels,
+            round: nextRound,
+          },
+        }),
+        signal: abortCtrl.signal,
+      });
+
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = "";
+      // Keep existing items and append to them
+      const items = [...feedItems];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        sseBuffer += decoder.decode(value, { stream: true });
+        const messages = sseBuffer.split("\n\n");
+        sseBuffer = messages.pop();
+
+        for (const msg of messages) {
+          const eventMatch = msg.match(/^event:\s*(.+)$/m);
+          const dataMatch = msg.match(/^data:\s*(.+)$/m);
+          if (!eventMatch || !dataMatch) continue;
+
+          const event = eventMatch[1].trim();
+          let data;
+          try { data = JSON.parse(dataMatch[1]); } catch { continue; }
+
+          switch (event) {
+            case "token":
+              if (items.length > 0 && items[items.length - 1].type === "text") {
+                items[items.length - 1].data += data.text;
+              } else {
+                items.push({ type: "text", data: data.text });
+              }
+              setFeedItems([...items]);
+              break;
+            case "entity": {
+              const idx = entities.length;
+              entities.push(data);
+              setEntities([...entities]);
+              setCheckedEntities(prev => new Set([...prev, idx]));
+              items.push({ type: "entity", data, idx });
+              setFeedItems([...items]);
+              addEntityToGraph(data);
+              break;
+            }
+            case "relationship": {
+              const idx = relationships.length;
+              relationships.push(data);
+              setRelationships([...relationships]);
+              setCheckedRels(prev => new Set([...prev, idx]));
+              items.push({ type: "relationship", data, idx });
+              setFeedItems([...items]);
+              addRelToGraph(data);
+              break;
+            }
+            case "round":
+              items.push({ type: "round", data });
+              setFeedItems([...items]);
+              setCurrentRound(data.round);
+              break;
+            case "phase":
+              items.push({ type: "phase", data });
+              setFeedItems([...items]);
+              break;
             case "done":
               setTokenInfo(data);
               break;
@@ -284,22 +432,10 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
 
       setPhase("review");
     } catch (err) {
-      if (err.name === "AbortError") {
-        // User stopped — show partial results for review
-        setPhase("review");
-      } else {
-        setError(err.message);
-        setPhase("review");
-      }
+      if (err.name !== "AbortError") setError(err.message);
+      setPhase("review");
     }
-  }, [entityName, focusQuestion, addEntityToGraph, addRelToGraph]);
-
-  // Stop streaming
-  const handleStop = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-  }, []);
+  }, [entityName, focusQuestion, entities, relationships, feedItems, allDiscoveredEntities, allDiscoveredRels, currentRound, addEntityToGraph, addRelToGraph]);
 
   // Toggle checks — also update mini-graph node appearance
   const toggleEntity = (idx) => {
@@ -514,6 +650,20 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
                       </div>
                     );
                   }
+                  if (item.type === "round") {
+                    return (
+                      <div key={`round-${fi}`} style={{ textAlign: "center", padding: "8px 0", color: "#4a9eff", fontSize: 12, fontWeight: 600, borderTop: "1px solid rgba(74,158,255,0.2)", marginTop: 8 }}>
+                        — Round {item.data.round} —
+                      </div>
+                    );
+                  }
+                  if (item.type === "phase") {
+                    return (
+                      <div key={`phase-${fi}`} style={{ padding: "4px 0", color: "var(--text-secondary)", fontSize: 11, fontStyle: "italic" }}>
+                        {item.data.message}
+                      </div>
+                    );
+                  }
                   return null;
                 })}
 
@@ -553,6 +703,20 @@ export default function EvolveModal({ entityName, onClose, onSaved }) {
           <div className="evolve-footer-actions">
             {phase === "review" && entities.length + relationships.length > 0 && !saveResult && (
               <>
+                {currentRound < 3 && (
+                  <button
+                    onClick={() => {
+                      // Don't clear entities/rels — they accumulate across rounds
+                      setPhase("streaming");
+                      setError(null);
+                      // Re-run the evolve with previous discoveries context
+                      handleNextRound();
+                    }}
+                    style={{ fontSize: 12, padding: "6px 14px", background: "#4a9eff22", color: "#4a9eff", border: "1px solid #4a9eff44", borderRadius: 6, cursor: "pointer" }}
+                  >
+                    Run Round {currentRound + 1}
+                  </button>
+                )}
                 <button
                   className="evolve-save-all-btn"
                   onClick={() => handleSave(true)}
