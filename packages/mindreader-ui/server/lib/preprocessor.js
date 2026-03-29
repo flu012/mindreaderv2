@@ -137,6 +137,7 @@ Rules:
 - If the text mentions an entity not in KNOWN ENTITIES, classify as "relationship" (Graphiti will create the new entity)
 - If the text mentions TWO OR MORE entities (known or unknown), ALWAYS classify as "relationship" — even if one entity is known
 - Only use "attribute" for facts that describe a SINGLE known entity with no other entity involved (e.g. "Alice is a swimmer" → attribute of Alice)
+- For long/detailed text, extract ALL significant facts — do not compress or summarize. Preserve procedural steps, configuration details, and technical specifics.
 - If the text is noise or has no meaningful facts, return {"facts": []}`;
 }
 
