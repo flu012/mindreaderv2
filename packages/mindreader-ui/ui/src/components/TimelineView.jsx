@@ -67,7 +67,7 @@ export default function TimelineView({ searchQuery, onSelectEntity, refreshKey }
                 <div
                   key={entity.uuid || `${section}-${i}`}
                   className="timeline-item"
-                  onClick={() => onSelectEntity(entity.name)}
+                  onClick={() => onSelectEntity(entity.uuid || entity.name)}
                 >
                   <div className="timeline-dot" style={{ backgroundColor: CATEGORY_COLORS[entity.category] || CATEGORY_COLORS.other }} />
                   <div className="timeline-content">

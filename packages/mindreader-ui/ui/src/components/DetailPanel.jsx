@@ -751,7 +751,7 @@ function RelationshipItem({ rel, direction, isCredential, onNavigate }) {
 
   if (direction === "outgoing") {
     return (
-      <div className="relationship-item" onClick={() => onNavigate(rel.other.name)}>
+      <div className="relationship-item" onClick={() => onNavigate(rel.other.uuid || rel.other.name)}>
         <div>
           <span className="relationship-label">{rel._type || "RELATES_TO"}</span>
           {" → "}

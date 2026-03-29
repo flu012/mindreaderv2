@@ -91,7 +91,7 @@ export default function ListView({ searchQuery, onSelectEntity }) {
                 key={entity.uuid || entity.name}
                 className="list-item"
                 style={{ borderLeftColor: CATEGORY_COLORS[entity.category] || CATEGORY_COLORS.other }}
-                onClick={() => onSelectEntity(entity.name)}
+                onClick={() => onSelectEntity(entity.uuid || entity.name)}
               >
                 <div className="list-item-header">
                   <span className="list-item-name">{entity.name}</span>

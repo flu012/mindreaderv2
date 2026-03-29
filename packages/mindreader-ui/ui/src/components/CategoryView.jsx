@@ -286,7 +286,7 @@ function CategoryCard({ category, onSelectEntity, onEdit, onDelete, onMerge }) {
               {entities.map((e) => (
                 <div
                   key={e.uuid || e.name}
-                  onClick={() => onSelectEntity(e.name)}
+                  onClick={() => onSelectEntity(e.uuid || e.name)}
                   style={{
                     display: "flex",
                     alignItems: "center",

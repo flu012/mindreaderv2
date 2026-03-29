@@ -99,7 +99,7 @@ export default function ProjectView({ searchQuery, onSelectEntity }) {
                   key={entity.id || entity.name}
                   className="list-item"
                   style={{ borderLeftColor: GROUP_COLORS[entity.group] || "#8888aa" }}
-                  onClick={() => onSelectEntity(entity.name)}
+                  onClick={() => onSelectEntity(entity.uuid || entity.id || entity.name)}
                 >
                   <div className="list-item-header">
                     <span className="list-item-name">{entity.name}</span>
