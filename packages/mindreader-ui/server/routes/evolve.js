@@ -91,10 +91,93 @@ export function registerRoutes(app, ctx) {
         `- ${n.name} (${n.category}): ${(n.summary || "").slice(0, 100)}`
       ).join("\n") || "None";
 
+      // Phase 1: Internal Discovery — find connections to existing graph entities
+      const graphEntities = await query(driver,
+        `MATCH (e:Entity)
+         WHERE e.expired_at IS NULL AND toLower(e.name) <> toLower($name)
+         WITH e, CASE
+           WHEN toLower(e.summary) CONTAINS toLower($name) THEN 3
+           WHEN ANY(tag IN coalesce(e.tags, []) WHERE toLower(tag) CONTAINS toLower($name)) THEN 2
+           ELSE 1
+         END AS relevance
+         RETURN e.name AS name, e.summary AS summary, e.category AS category, e.tags AS tags, e.details AS details
+         ORDER BY relevance DESC, e.created_at DESC LIMIT 50`,
+        { name: startNode.name || name }
+      );
+
+      const connectedNames = new Set(connected.map(c => c.name?.toLowerCase()));
+      const unconnectedEntities = graphEntities.filter(e => !connectedNames.has(e.name?.toLowerCase()));
+
+      if (unconnectedEntities.length > 0) {
+        sendSSE("phase", { phase: "internal", message: "Discovering internal connections..." });
+
+        const graphEntityList = unconnectedEntities.map(e =>
+          `- ${e.name} [${e.category || "other"}]: ${(e.summary || "").slice(0, 150)}${e.details ? " | " + e.details.slice(0, 100) : ""}`
+        ).join("\n");
+
+        const internalPrompt = `You are analyzing a knowledge graph. Given a target entity and a list of OTHER entities that exist in the same graph but are NOT yet connected, identify relationships that likely exist between them.
+
+## Target Entity
+${entityInfo}
+
+## Already Connected (skip these)
+${connectedEntities}
+
+## Other Entities in the Graph (find connections to these)
+${graphEntityList}
+
+## Instructions
+Based on the entity names, summaries, and details above, identify which of the "Other Entities" have a real relationship to "${startNode.name || name}". Only create relationships where there is clear evidence from the summaries/details — do not guess or fabricate.
+
+## Output Format
+For each discovered connection, output:
+[REL] {"source": "Source Entity", "target": "Target Entity", "label": "short_label", "fact": "Explanation of the relationship based on known information"}
+
+RULES:
+- Only use entity names that EXACTLY match those listed above.
+- "source" or "target" MUST be "${startNode.name || name}".
+- Only create relationships with clear evidence — do not hallucinate connections.
+- Aim for quality over quantity. 3-10 well-evidenced connections is better than 20 guesses.`;
+
+        try {
+          const { callLLM } = await import("../lib/llm.js");
+          const internalResult = await callLLM({
+            prompt: internalPrompt,
+            config: { ...config, llmModel: config.llmEvolveModel || config.llmModel },
+            jsonMode: false,
+            timeoutMs: 30000,
+            temperature: 0.2,
+            maxTokens: 4000,
+          });
+
+          // Parse [REL] lines from internal discovery
+          const lines = (internalResult || "").split("\n");
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("[REL]")) {
+              try {
+                const json = JSON.parse(trimmed.slice(5).trim());
+                sendSSE("relationship", json);
+                sendSSE("token", { text: `Internal: ${json.source} → ${json.target} (${json.label})\n` });
+              } catch { /* skip malformed */ }
+            }
+          }
+        } catch (err) {
+          logger?.warn?.(`Evolve internal discovery failed: ${err.message}`);
+        }
+
+        sendSSE("phase", { phase: "external", message: "Researching external knowledge..." });
+      }
+
       const sanitizedFocus = (focusQuestion || "").slice(0, 500);
       const taskSection = sanitizedFocus
         ? `Research focus: ${sanitizedFocus}`
         : "Research this entity broadly. Discover important facts, related people, organizations, events, locations, and other entities.";
+
+      // Include unconnected graph entities in the external prompt so LLM can connect to them
+      const graphContextSection = unconnectedEntities.length > 0
+        ? `\n## Other Entities in the Graph (connect to these if relevant)\n${unconnectedEntities.slice(0, 20).map(e => `- ${e.name} (${e.category || "other"})`).join("\n")}\n`
+        : "";
 
       const llmPrompt = `You are an internet research specialist. Your task is to **search the web** for real-world information about "${startNode.name || name}" and bring back NEW facts, context, and connections that are NOT already in the knowledge graph.
 
@@ -106,7 +189,7 @@ ${connectionsInfo}
 
 ## Already Connected Entities (DO NOT rediscover these)
 ${connectedEntities}
-
+${graphContextSection}
 ## Research Task
 ${taskSection}
 
@@ -132,6 +215,7 @@ CRITICAL RULES:
 - Do NOT rediscover entities already listed in "Already Connected Entities" above.
 - Relationship "fact" fields should contain specific, sourced information (e.g. "Founded in 2015 in San Francisco" not "Is a company").
 - "source" is the entity performing the action, "target" is the entity being acted upon.
+- If you discover a connection to an entity listed in "Other Entities in the Graph", use its EXACT name — do NOT create a duplicate.
 
 You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 new entities with real external information.`;
 
