@@ -48,6 +48,15 @@ https://github.com/user-attachments/assets/4a93cef0-e48e-464d-a70c-1759d16c5de2
 
 > *A single evolve pass typically discovers 10-25 new entities and relationships, turning a lonely node into a rich knowledge cluster.*
 
+### Memory Decay & Time Travel
+
+Memories fade over time unless reinforced by use. Each entity and relationship has a **strength** score that decays exponentially — frequently accessed memories stay vivid, unused ones gradually fade and eventually expire.
+
+- **Visual decay** — node opacity reflects memory strength; fading nodes signal aging knowledge
+- **"Show Decay" mode** — color-codes the graph by strength (green → yellow → red)
+- **Time Travel** — drag a slider to see the graph as it was at any point in time. Nodes that didn't exist yet disappear; expired nodes reappear as ghosts. Hit **Auto Play** to watch your knowledge graph grow from the beginning.
+- **Restore** — bring back any expired entity with one click
+
 ### Auto-Maintenance
 
 LLM-powered background maintenance keeps your graph clean: auto-categorization, auto-tagging, duplicate detection, relationship repair, and orphan cleanup — without any manual effort.
