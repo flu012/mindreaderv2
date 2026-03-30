@@ -127,14 +127,23 @@ export function registerRoutes(app, ctx) {
                 const relType = rel.type.trim();
                 const fact = (rel.fact || `${name} ${relType} ${targetName}`).trim();
 
-                // MERGE target entity (create if it doesn't exist)
+                // Check if target already exists (case-insensitive) before MERGE
+                const existingTarget = await session.run(
+                  `MATCH (t:Entity) WHERE toLower(t.name) = toLower($targetName) RETURN t.name AS name LIMIT 1`,
+                  { targetName }
+                );
+                const actualTargetName = existingTarget.records.length > 0
+                  ? existingTarget.records[0].get("name")
+                  : targetName;
+
+                // MERGE target entity using the actual name (preserves original casing)
                 await session.run(
-                  `MERGE (t:Entity {name: $targetName})
+                  `MERGE (t:Entity {name: $actualTargetName})
                    ON CREATE SET t.uuid = $uuid, t.summary = "", t.details = "",
                      t.category = "other", t.tags = [],
                      t.created_at = datetime($now), t.node_type = "normal",
                      t.strength = 1.0, t.last_accessed_at = datetime($now), t.expired_at = null`,
-                  { targetName, uuid: randomUUID(), now }
+                  { actualTargetName, uuid: randomUUID(), now }
                 );
 
                 // Create the relationship
