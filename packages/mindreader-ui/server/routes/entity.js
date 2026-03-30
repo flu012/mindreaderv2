@@ -9,16 +9,22 @@ import { callLLM } from "../lib/llm.js";
 export function registerRoutes(app, ctx) {
   const { driver, config, logger, mgDaemon } = ctx;
 
+  // Helper: build match clause that supports both uuid and name lookup
+  function entityMatch(paramName = "name", alias = "e") {
+    return (val) => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      return isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+    };
+  }
+
   /**
    * GET /api/entity/:name — Entity detail with all relationships
    */
   app.get("/api/entity/:name", async (req, res) => {
     try {
       const { name } = req.params;
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(name);
-      const matchClause = isUuid
-        ? "WHERE e.uuid = $name"
-        : "WHERE toLower(e.name) = toLower($name)";
+      const match = entityMatch("name")(name);
+      const matchClause = `WHERE ${match}`;
 
       // Get entity
       const entities = await query(driver,
@@ -110,8 +116,9 @@ export function registerRoutes(app, ctx) {
         return res.status(400).json({ error: "Nothing to update" });
       }
 
+      const match = entityMatch("name")(name);
       const result = await query(driver,
-        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+        `MATCH (e:Entity) WHERE ${match}
          SET ${setClauses.join(", ")}
          RETURN e`,
         params
@@ -135,11 +142,12 @@ export function registerRoutes(app, ctx) {
   app.get("/api/entity/:name/summarize", async (req, res) => {
     try {
       const { name } = req.params;
+      const match = entityMatch("name", "start")(name);
 
       // Single efficient query: get entity + direct relationships + connected entities
       const results = await query(driver,
         `MATCH (start:Entity)
-         WHERE toLower(start.name) = toLower($name)
+         WHERE ${match}
          OPTIONAL MATCH (start)-[r:RELATES_TO]-(other:Entity)
          WHERE r.expired_at IS NULL
          WITH start,
@@ -197,9 +205,10 @@ Write a 200-word summary:`;
 
       // Save explanation to the Entity node in Neo4j (separate from summary)
       try {
+        const saveMatch = entityMatch("name")(name);
         await query(driver,
           `MATCH (e:Entity)
-           WHERE toLower(e.name) = toLower($name)
+           WHERE ${saveMatch}
            SET e.explanation = $explanation, e.explanation_updated_at = datetime()`,
           { name, explanation: generatedSummary }
         );
@@ -337,16 +346,17 @@ Write a 200-word summary:`;
   app.get("/api/entity/:name/delete-preview", async (req, res) => {
     try {
       const { name } = req.params;
+      const match = entityMatch("name")(name);
 
       const entity = await query(driver,
-        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) RETURN e LIMIT 1`,
+        `MATCH (e:Entity) WHERE ${match} RETURN e LIMIT 1`,
         { name }
       );
       if (!entity.length) return res.status(404).json({ error: "Entity not found" });
 
       const rels = await query(driver,
         `MATCH (e:Entity)-[r:RELATES_TO]-(other:Entity)
-         WHERE toLower(e.name) = toLower($name) AND r.expired_at IS NULL
+         WHERE ${match} AND r.expired_at IS NULL
          RETURN r.name AS relation, r.fact AS fact, other.name AS otherName,
                 CASE WHEN startNode(r) = e THEN 'outgoing' ELSE 'incoming' END AS direction`,
         { name }
@@ -354,7 +364,7 @@ Write a 200-word summary:`;
 
       const episodes = await query(driver,
         `MATCH (e:Entity)-[r:MENTIONS]-(ep:Episodic)
-         WHERE toLower(e.name) = toLower($name)
+         WHERE ${match}
          RETURN count(ep) AS count`,
         { name }
       );
@@ -380,9 +390,10 @@ Write a 200-word summary:`;
   app.delete("/api/entity/:name", async (req, res) => {
     try {
       const { name } = req.params;
+      const match = entityMatch("name")(name);
 
       const entity = await query(driver,
-        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) RETURN e.name AS name`,
+        `MATCH (e:Entity) WHERE ${match} RETURN e.name AS name, e.uuid AS uuid`,
         { name }
       );
       if (!entity.length) return res.status(404).json({ error: "Entity not found" });
@@ -419,9 +430,10 @@ Write a 200-word summary:`;
       const { summary } = req.body;
       if (summary == null) return res.status(400).json({ error: "Missing summary" });
 
+      const match = entityMatch("name")(name);
       await query(driver,
         `MATCH (e:Entity)
-         WHERE toLower(e.name) = toLower($name)
+         WHERE ${match}
          SET e.summary = $summary`,
         { name, summary }
       );
@@ -443,8 +455,9 @@ Write a 200-word summary:`;
         return res.status(400).json({ error: "Missing 'details' string in body" });
       }
       const trimmed = details.slice(0, MAX_DETAILS_LENGTH);
+      const match = entityMatch("name")(name);
       await query(driver,
-        `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+        `MATCH (e:Entity) WHERE ${match}
          SET e.details = $details, e.last_accessed_at = datetime()`,
         { name, details: trimmed }
       );

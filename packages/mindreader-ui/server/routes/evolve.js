@@ -9,6 +9,14 @@ import { synthesizeDetails } from "../lib/details.js";
 export function registerRoutes(app, ctx) {
   const { driver, config, logger, mgDaemon } = ctx;
 
+  // Helper: build match clause that supports both uuid and name lookup
+  function entityMatch(paramName = "name", alias = "e") {
+    return (val) => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      return isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+    };
+  }
+
   // ========================================================================
   // Node Evolve — SSE streaming endpoint
   // ========================================================================
@@ -51,12 +59,16 @@ export function registerRoutes(app, ctx) {
 
     try {
       const { name } = req.params;
-      const { focusQuestion } = req.body || {};
+      const { focusQuestion, previousDiscoveries } = req.body || {};
+      const prevEntities = Array.isArray(previousDiscoveries?.entities) ? previousDiscoveries.entities : [];
+      const prevRelationships = Array.isArray(previousDiscoveries?.relationships) ? previousDiscoveries.relationships : [];
+      const roundNumber = (previousDiscoveries?.round || 0) + 1;
 
       // Fetch entity + connections (same pattern as /summarize)
+      const match = entityMatch("name", "start")(name);
       const results = await query(driver,
         `MATCH (start:Entity)
-         WHERE toLower(start.name) = toLower($name)
+         WHERE ${match}
          OPTIONAL MATCH (start)-[r:RELATES_TO]-(other:Entity)
          WHERE r.expired_at IS NULL
          WITH start,
@@ -91,6 +103,13 @@ export function registerRoutes(app, ctx) {
         `- ${n.name} (${n.category}): ${(n.summary || "").slice(0, 100)}`
       ).join("\n") || "None";
 
+      // Build previous discoveries context for multi-round evolve
+      const prevDiscoverySection = prevEntities.length > 0
+        ? `\n## Previously Discovered (DO NOT repeat these — from earlier rounds)\nEntities: ${prevEntities.join(", ")}\nRelationships: ${prevRelationships.slice(0, 30).map(r => `${r.source} [${r.label}] ${r.target}`).join("; ")}\n`
+        : "";
+
+      sendSSE("round", { round: roundNumber });
+
       // Phase 1: Internal Discovery — find connections to existing graph entities
       const graphEntities = await query(driver,
         `MATCH (e:Entity)
@@ -106,7 +125,10 @@ export function registerRoutes(app, ctx) {
       );
 
       const connectedNames = new Set(connected.map(c => c.name?.toLowerCase()));
-      const unconnectedEntities = graphEntities.filter(e => !connectedNames.has(e.name?.toLowerCase()));
+      const prevNames = new Set(prevEntities.map(n => n.toLowerCase()));
+      const unconnectedEntities = graphEntities.filter(e =>
+        !connectedNames.has(e.name?.toLowerCase()) && !prevNames.has(e.name?.toLowerCase())
+      );
 
       if (unconnectedEntities.length > 0) {
         sendSSE("phase", { phase: "internal", message: "Discovering internal connections..." });
@@ -122,7 +144,7 @@ ${entityInfo}
 
 ## Already Connected (skip these)
 ${connectedEntities}
-
+${prevDiscoverySection}
 ## Other Entities in the Graph (find connections to these)
 ${graphEntityList}
 
@@ -189,7 +211,7 @@ ${connectionsInfo}
 
 ## Already Connected Entities (DO NOT rediscover these)
 ${connectedEntities}
-${graphContextSection}
+${prevDiscoverySection}${graphContextSection}
 ## Research Task
 ${taskSection}
 
@@ -546,8 +568,9 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 new e
 
       // Synthesize details from evolved content
       try {
+        const saveMatch = entityMatch("name")(targetName);
         const entityData = await query(driver,
-          `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+          `MATCH (e:Entity) WHERE ${saveMatch}
            RETURN e.details AS details, e.summary AS summary, e.category AS category, e.tags AS tags`,
           { name: targetName }
         );
@@ -570,7 +593,7 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 new e
           });
 
           await query(driver,
-            `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+            `MATCH (e:Entity) WHERE ${saveMatch}
              SET e.details = $details, e.summary = $summary`,
             { name: targetName, details: synthesized.details, summary: synthesized.summary }
           );

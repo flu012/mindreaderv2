@@ -13,16 +13,23 @@
 
 // Note: uses driver.session() directly for write transactions, not the query() helper.
 
+// Helper: build match clause that supports both uuid and name lookup
+function buildEntityMatchClause(val, paramName = "name", alias = "e") {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  return isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+}
+
 /**
  * Reinforce an entity and its edges on access (search/recall/view).
  * Resets last_accessed_at to now, boosts strength by delta (capped at 1.0).
  */
 export async function reinforceEntity(driver, entityName, delta = 0.3) {
   if (!entityName) return;
+  const match = buildEntityMatchClause(entityName);
   const session = driver.session();
   try {
     await session.run(
-      `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) AND e.expired_at IS NULL
+      `MATCH (e:Entity) WHERE ${match} AND e.expired_at IS NULL
        SET e.last_accessed_at = datetime(),
            e.strength = CASE WHEN coalesce(e.strength, 1.0) + $delta > 1.0
                              THEN 1.0
@@ -30,7 +37,7 @@ export async function reinforceEntity(driver, entityName, delta = 0.3) {
       { name: entityName, delta }
     );
     await session.run(
-      `MATCH (e:Entity)-[r:RELATES_TO]-() WHERE toLower(e.name) = toLower($name) AND r.expired_at IS NULL
+      `MATCH (e:Entity)-[r:RELATES_TO]-() WHERE ${match} AND r.expired_at IS NULL
        SET r.last_accessed_at = datetime(),
            r.strength = CASE WHEN coalesce(r.strength, 1.0) + $delta > 1.0
                              THEN 1.0

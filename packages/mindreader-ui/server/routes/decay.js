@@ -6,6 +6,14 @@ import { query } from "../neo4j.js";
 export function registerRoutes(app, ctx) {
   const { driver, config, logger } = ctx;
 
+  // Helper: build match clause that supports both uuid and name lookup
+  function entityMatch(paramName = "name", alias = "e") {
+    return (val) => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      return isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+    };
+  }
+
   /**
    * GET /api/decay/status — Decay statistics and configuration
    */
@@ -70,15 +78,16 @@ export function registerRoutes(app, ctx) {
   app.post("/api/decay/restore/:name", async (req, res) => {
     try {
       const { name } = req.params;
+      const match = entityMatch("name")(name);
       const session = driver.session();
       try {
         await session.run(
-          `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+          `MATCH (e:Entity) WHERE ${match}
            SET e.expired_at = null, e.strength = 1.0, e.last_accessed_at = datetime()`,
           { name }
         );
         await session.run(
-          `MATCH (e:Entity)-[r:RELATES_TO]-() WHERE toLower(e.name) = toLower($name)
+          `MATCH (e:Entity)-[r:RELATES_TO]-() WHERE ${match}
            SET r.expired_at = null, r.strength = 1.0, r.last_accessed_at = datetime()`,
           { name }
         );
