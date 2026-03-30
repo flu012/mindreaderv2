@@ -87,6 +87,21 @@ MindReader is built as a first-class [OpenClaw](https://github.com/openclaw) ext
 
 > Just talk to your agent naturally. MindReader handles the rest.
 
+### MCP Server — Use with Claude Code & Cursor
+
+MindReader includes an [MCP server](https://github.com/flu012/mindreader-mcp) for integration with Claude Code, Cursor, or any MCP-compatible client. Six tools: search, store, create, recall, list entities, and stats.
+
+```json
+{
+  "mcpServers": {
+    "mindreader": {
+      "command": "node",
+      "args": ["/path/to/mindreader-mcp/src/index.js"]
+    }
+  }
+}
+```
+
 ---
 
 ## Quick Start
@@ -117,6 +132,17 @@ npm start        # http://localhost:18900
 | Ollama | `llama3.2` | No | Free, fully local, no API key needed |
 
 > For the self-evolve feature, a model with built-in web search (like DashScope's Qwen) produces significantly richer results. Ollama is great for privacy-first setups where all data stays on your machine.
+
+### Direct Entity API
+
+For systems that need precise, deterministic memory management without LLM processing:
+
+```bash
+curl -X POST http://localhost:18900/api/entities -H "Content-Type: application/json" \
+  -d '{"entities":[{"name":"Alice","category":"person","tags":["engineer"]}]}'
+```
+
+Batch creation, upsert, and relationships. See [API Reference](docs/api-direct-entity.md).
 
 ---
 

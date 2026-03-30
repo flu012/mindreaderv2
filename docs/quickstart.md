@@ -9,7 +9,7 @@ Step-by-step installation for a fresh machine. Takes about 10 minutes.
 | **Node.js 18+** | Server + UI |
 | **Python 3.11+** | Knowledge graph engine (Graphiti) |
 | **Docker** | Neo4j database (or bring your own Neo4j 5.x) |
-| **LLM API key** | OpenAI, Anthropic, or DashScope |
+| **LLM API key** | OpenAI, Anthropic, DashScope, or Ollama (no key needed) |
 
 > **Anthropic users:** You'll also need an OpenAI or DashScope API key for embeddings — Anthropic doesn't provide an embeddings API.
 
@@ -50,6 +50,12 @@ Docker-managed Neo4j runs on ports 7474 (browser) and 7687 (bolt).
 | **OpenAI** | `gpt-4o-mini` | No | Most common choice |
 | **Anthropic** | `claude-sonnet-4-6` | No | Needs separate embedder (OpenAI or DashScope) |
 | **DashScope** | `qwen3.5-flash` | Yes (built-in) | Best for self-evolve feature |
+| **Ollama** | `llama3.2` | No | Free, local, no API key needed |
+
+> For Ollama, install from https://ollama.com, then pull the required models:
+> ```bash
+> ollama pull llama3.2 && ollama pull nomic-embed-text
+> ```
 
 You'll be asked for:
 - API key
@@ -145,7 +151,7 @@ All settings are in `.env` at the repo root. Key variables:
 
 | Variable | Description |
 |---|---|
-| `LLM_PROVIDER` | `openai`, `anthropic`, or `dashscope` |
+| `LLM_PROVIDER` | `openai`, `anthropic`, `dashscope`, or `ollama` |
 | `LLM_API_KEY` | Your LLM API key |
 | `LLM_MODEL` | Model for entity extraction and categorization |
 | `LLM_EVOLVE_MODEL` | Model for node evolve (web-search-capable recommended) |
@@ -154,6 +160,14 @@ All settings are in `.env` at the repo root. Key variables:
 | `NEO4J_URI` | Neo4j bolt URI (default: `bolt://localhost:7687`) |
 | `NEO4J_PASSWORD` | Neo4j password |
 | `UI_PORT` | Web UI port (default: `18900`) |
+
+### Memory Decay
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEMORY_DECAY_ENABLED` | `true` | Enable/disable memory decay |
+| `MEMORY_DECAY_LAMBDA` | `0.03` | Decay rate (~23-day half-life) |
+| `MEMORY_DECAY_THRESHOLD` | `0.1` | Auto-expire below this strength |
 
 To reconfigure, either edit `.env` directly or re-run `npm run setup`.
 

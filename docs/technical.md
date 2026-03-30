@@ -103,6 +103,16 @@ Search across entity names, summaries, and tags from a single search bar (Ctrl+K
 - Filter by category to focus on what matters
 - **6 layout modes** — Force, ForceAtlas2, Radial, Circular, Cluster, Grid
 
+## Multi-Round Evolve
+
+Evolve supports up to 3 rounds of progressive discovery:
+
+1. **Round 1**: Internal discovery (connections to existing graph entities) + external web research
+2. **Round 2**: Deeper research, excluding Round 1 discoveries, finding second-degree connections
+3. **Round 3**: Further depth, building on all prior discoveries
+
+Each round sends previous discoveries as exclusion context to avoid re-discovering the same entities. The UI shows a sequential feed with round dividers. After each round, choose to continue or save.
+
 ## Memory Decay — Temporal Lifecycle
 
 Memories decay over time unless reinforced by access. This keeps the knowledge graph fresh and prevents stale data from cluttering recall results.
@@ -137,9 +147,16 @@ Memories decay over time unless reinforced by access. This keeps the knowledge g
 | `/api/decay/run` | POST | Manually trigger a decay cycle |
 | `/api/decay/restore/:name` | POST | Un-expire an entity and its relationships |
 
-### Time-Travel Support
+### Time-Travel UI
 
-All expiry is soft-delete. The data model supports future time-travel queries:
+Enable "Time Travel" in the graph view to reveal a date slider:
+- Drag the slider to see the graph at any point in time
+- Nodes created after the selected date disappear
+- Expired nodes reappear as ghosts
+- Date gauge ticks show key dates
+- **Auto Play**: animates from the oldest entity to now over 30 seconds
+
+All expiry is soft-delete. The underlying data model uses `created_at` and `expired_at` timestamps:
 
 ```
 -- Show the graph as of March 1
@@ -246,7 +263,7 @@ Configuration is stored in `.env` at the monorepo root. The setup wizard generat
 
 | Variable | Description |
 |---|---|
-| `LLM_PROVIDER` | `openai`, `dashscope`, or `anthropic` |
+| `LLM_PROVIDER` | `openai`, `dashscope`, `anthropic`, or `ollama` |
 | `LLM_API_KEY` | API key for the LLM provider |
 | `LLM_BASE_URL` | API base URL |
 | `LLM_MODEL` | Primary LLM model |
