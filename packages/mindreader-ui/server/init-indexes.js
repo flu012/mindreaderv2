@@ -31,6 +31,26 @@ export async function initIndexes(driver, logger) {
       name: "rel_strength",
       cypher: `CREATE INDEX rel_strength IF NOT EXISTS FOR ()-[r:RELATES_TO]-() ON (r.strength)`,
     },
+    {
+      name: "entity_tenantId",
+      cypher: `CREATE INDEX entity_tenantId IF NOT EXISTS FOR (n:Entity) ON (n.tenantId)`,
+    },
+    {
+      name: "entity_tenant_name",
+      cypher: `CREATE INDEX entity_tenant_name IF NOT EXISTS FOR (n:Entity) ON (n.tenantId, n.name)`,
+    },
+    {
+      name: "episodic_tenantId",
+      cypher: `CREATE INDEX episodic_tenantId IF NOT EXISTS FOR (n:Episodic) ON (n.tenantId)`,
+    },
+    {
+      name: "tokenusage_tenantId",
+      cypher: `CREATE INDEX tokenusage_tenantId IF NOT EXISTS FOR (n:TokenUsage) ON (n.tenantId)`,
+    },
+    {
+      name: "auditlog_tenantId",
+      cypher: `CREATE INDEX auditlog_tenantId IF NOT EXISTS FOR (n:AuditLog) ON (n.tenantId)`,
+    },
   ];
 
   for (const idx of indexes) {
@@ -54,9 +74,10 @@ export async function initIndexes(driver, logger) {
   try {
     const result = await query(driver,
       `MATCH ()-[r:RELATES_TO]->()
-       WHERE r.group_id IS NULL OR r.episodes IS NULL
+       WHERE r.group_id IS NULL OR r.episodes IS NULL OR r.tenantId IS NULL
        SET r.group_id = COALESCE(r.group_id, ""),
-           r.episodes = COALESCE(r.episodes, [])
+           r.episodes = COALESCE(r.episodes, []),
+           r.tenantId = COALESCE(r.tenantId, "master")
        RETURN count(r) AS fixed`
     );
     const fixed = result[0]?.fixed || 0;
