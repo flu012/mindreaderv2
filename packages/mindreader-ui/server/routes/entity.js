@@ -28,7 +28,7 @@ export function registerRoutes(app, ctx) {
 
       // Get entity
       const entities = await query(driver,
-        `MATCH (e:Entity) ${matchClause} RETURN e LIMIT 1`,
+        `MATCH (e:Entity) ${matchClause} AND e.tenantId = $__tenantId RETURN e LIMIT 1`,
         { name }
       );
 
@@ -42,7 +42,7 @@ export function registerRoutes(app, ctx) {
       const entityUuid = entity.uuid || name;
       const rels = await query(driver,
         `MATCH (e:Entity)-[r:RELATES_TO]-(other:Entity)
-         WHERE e.uuid = $uuid AND r.expired_at IS NULL
+         WHERE e.tenantId = $__tenantId AND e.uuid = $uuid AND r.expired_at IS NULL
          RETURN r, other,
                 CASE WHEN startNode(r) = e THEN 'outgoing' ELSE 'incoming' END AS direction
          LIMIT 50`,
@@ -118,7 +118,7 @@ export function registerRoutes(app, ctx) {
 
       const match = entityMatch("name")(name);
       const result = await query(driver,
-        `MATCH (e:Entity) WHERE ${match}
+        `MATCH (e:Entity) WHERE ${match} AND e.tenantId = $__tenantId
          SET ${setClauses.join(", ")}
          RETURN e`,
         params
@@ -147,7 +147,7 @@ export function registerRoutes(app, ctx) {
       // Single efficient query: get entity + direct relationships + connected entities
       const results = await query(driver,
         `MATCH (start:Entity)
-         WHERE ${match}
+         WHERE ${match} AND start.tenantId = $__tenantId
          OPTIONAL MATCH (start)-[r:RELATES_TO]-(other:Entity)
          WHERE r.expired_at IS NULL
          WITH start,
@@ -208,7 +208,7 @@ Write a 200-word summary:`;
         const saveMatch = entityMatch("name")(name);
         await query(driver,
           `MATCH (e:Entity)
-           WHERE ${saveMatch}
+           WHERE ${saveMatch} AND e.tenantId = $__tenantId
            SET e.explanation = $explanation, e.explanation_updated_at = datetime()`,
           { name, explanation: generatedSummary }
         );
@@ -248,7 +248,7 @@ Write a 200-word summary:`;
 
       // Transfer all RELATES_TO relationships from merge entity to keep entity
       const transferred = await query(driver,
-        `MATCH (src:Entity WHERE ${mergeMatch})-[r:RELATES_TO]-(other:Entity)
+        `MATCH (src:Entity WHERE ${mergeMatch} AND src.tenantId = $__tenantId)-[r:RELATES_TO]-(other:Entity)
          WHERE other.uuid <> coalesce($keepUuid, '') AND other.name <> $keepName
          WITH src, r, other,
               CASE WHEN startNode(r) = src THEN 'out' ELSE 'in' END AS dir,
@@ -263,13 +263,15 @@ Write a 200-word summary:`;
         const newFact = (t.fact || "").replace(new RegExp(mergeName, "gi"), keepName);
         if (t.dir === "out") {
           await query(driver,
-            `MATCH (k:Entity WHERE ${keepMatch}), (o:Entity {name: $otherName})
+            `MATCH (k:Entity WHERE ${keepMatch} AND k.tenantId = $__tenantId), (o:Entity {name: $otherName})
+             WHERE o.tenantId = $__tenantId
              CREATE (k)-[:RELATES_TO {name: $relName, fact: $fact, created_at: datetime(), uuid: randomUUID(), group_id: "", episodes: [], strength: 1.0, last_accessed_at: datetime()}]->(o)`,
             { keepName, keepUuid: keepUuid || "", otherName: t.otherName, relName: t.relName, fact: newFact }
           );
         } else {
           await query(driver,
-            `MATCH (o:Entity {name: $otherName}), (k:Entity WHERE ${keepMatch})
+            `MATCH (o:Entity {name: $otherName}), (k:Entity WHERE ${keepMatch} AND k.tenantId = $__tenantId)
+             WHERE o.tenantId = $__tenantId
              CREATE (o)-[:RELATES_TO {name: $relName, fact: $fact, created_at: datetime(), uuid: randomUUID(), group_id: "", episodes: [], strength: 1.0, last_accessed_at: datetime()}]->(k)`,
             { keepName, keepUuid: keepUuid || "", otherName: t.otherName, relName: t.relName, fact: newFact }
           );
@@ -284,12 +286,12 @@ Write a 200-word summary:`;
         if (newSummary !== undefined) { sets.push("e.summary = $summary"); params.summary = newSummary; }
         if (newGroup) { sets.push("e.category = $category"); params.category = newGroup; }
         if (sets.length > 0) {
-          await query(driver, `MATCH (e:Entity WHERE ${keepMatch}) SET ${sets.join(", ")}`, params);
+          await query(driver, `MATCH (e:Entity WHERE ${keepMatch} AND e.tenantId = $__tenantId) SET ${sets.join(", ")}`, params);
         }
       }
 
       // Delete merged entity
-      await query(driver, `MATCH (e:Entity WHERE ${mergeMatch}) DETACH DELETE e`, { mergeName, mergeUuid: mergeUuid || "" });
+      await query(driver, `MATCH (e:Entity WHERE ${mergeMatch} AND e.tenantId = $__tenantId) DETACH DELETE e`, { mergeName, mergeUuid: mergeUuid || "" });
 
       logger?.info?.(`MindReader: merged "${mergeName}" into "${keepName}" (${count} rels transferred)`);
       res.json({ ok: true, kept: keepName, deleted: mergeName, transferred: count });
@@ -314,7 +316,7 @@ Write a 200-word summary:`;
 
       // Verify both entities exist before creating the link
       const entities = await query(driver,
-        `MATCH (s:Entity WHERE ${sourceMatch}), (t:Entity WHERE ${targetMatch})
+        `MATCH (s:Entity WHERE ${sourceMatch} AND s.tenantId = $__tenantId), (t:Entity WHERE ${targetMatch} AND t.tenantId = $__tenantId)
          RETURN s.name AS sName, t.name AS tName`,
         { sourceName, targetName, sourceUuid: sourceUuid || "", targetUuid: targetUuid || "" }
       );
@@ -323,7 +325,7 @@ Write a 200-word summary:`;
       }
 
       await query(driver,
-        `MATCH (s:Entity WHERE ${sourceMatch}), (t:Entity WHERE ${targetMatch})
+        `MATCH (s:Entity WHERE ${sourceMatch} AND s.tenantId = $__tenantId), (t:Entity WHERE ${targetMatch} AND t.tenantId = $__tenantId)
          CREATE (s)-[:RELATES_TO {
            name: $relationName, fact: $fact,
            created_at: datetime(), uuid: randomUUID(),
@@ -349,14 +351,14 @@ Write a 200-word summary:`;
       const match = entityMatch("name")(name);
 
       const entity = await query(driver,
-        `MATCH (e:Entity) WHERE ${match} RETURN e LIMIT 1`,
+        `MATCH (e:Entity) WHERE ${match} AND e.tenantId = $__tenantId RETURN e LIMIT 1`,
         { name }
       );
       if (!entity.length) return res.status(404).json({ error: "Entity not found" });
 
       const rels = await query(driver,
         `MATCH (e:Entity)-[r:RELATES_TO]-(other:Entity)
-         WHERE ${match} AND r.expired_at IS NULL
+         WHERE ${match} AND e.tenantId = $__tenantId AND r.expired_at IS NULL
          RETURN r.name AS relation, r.fact AS fact, other.name AS otherName,
                 CASE WHEN startNode(r) = e THEN 'outgoing' ELSE 'incoming' END AS direction`,
         { name }
@@ -364,7 +366,7 @@ Write a 200-word summary:`;
 
       const episodes = await query(driver,
         `MATCH (e:Entity)-[r:MENTIONS]-(ep:Episodic)
-         WHERE ${match}
+         WHERE ${match} AND e.tenantId = $__tenantId
          RETURN count(ep) AS count`,
         { name }
       );
@@ -393,7 +395,7 @@ Write a 200-word summary:`;
       const match = entityMatch("name")(name);
 
       const entity = await query(driver,
-        `MATCH (e:Entity) WHERE ${match} RETURN e.name AS name, e.uuid AS uuid`,
+        `MATCH (e:Entity) WHERE ${match} AND e.tenantId = $__tenantId RETURN e.name AS name, e.uuid AS uuid`,
         { name }
       );
       if (!entity.length) return res.status(404).json({ error: "Entity not found" });
@@ -403,6 +405,7 @@ Write a 200-word summary:`;
       // Count what will be deleted
       const counts = await query(driver,
         `MATCH (e:Entity {name: $name})
+         WHERE e.tenantId = $__tenantId
          OPTIONAL MATCH (e)-[r]-()
          RETURN count(r) AS relCount`,
         { name: actualName }
@@ -411,7 +414,7 @@ Write a 200-word summary:`;
       const relCount = counts[0]?.relCount?.toNumber?.() || counts[0]?.relCount || 0;
 
       // DETACH DELETE removes node + all relationships
-      await query(driver, `MATCH (e:Entity {name: $name}) DETACH DELETE e`, { name: actualName });
+      await query(driver, `MATCH (e:Entity {name: $name}) WHERE e.tenantId = $__tenantId DETACH DELETE e`, { name: actualName });
 
       logger?.info?.(`MindReader: deleted entity "${actualName}" (${relCount} relationships removed)`);
       res.json({ ok: true, deleted: actualName, relationshipsRemoved: relCount });
@@ -433,7 +436,7 @@ Write a 200-word summary:`;
       const match = entityMatch("name")(name);
       await query(driver,
         `MATCH (e:Entity)
-         WHERE ${match}
+         WHERE ${match} AND e.tenantId = $__tenantId
          SET e.summary = $summary`,
         { name, summary }
       );
@@ -457,7 +460,7 @@ Write a 200-word summary:`;
       const trimmed = details.slice(0, MAX_DETAILS_LENGTH);
       const match = entityMatch("name")(name);
       await query(driver,
-        `MATCH (e:Entity) WHERE ${match}
+        `MATCH (e:Entity) WHERE ${match} AND e.tenantId = $__tenantId
          SET e.details = $details, e.last_accessed_at = datetime()`,
         { name, details: trimmed }
       );

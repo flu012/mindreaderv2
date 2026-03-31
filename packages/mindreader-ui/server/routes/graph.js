@@ -26,20 +26,22 @@ export function registerRoutes(app, ctx) {
         // Filter by project: find entities related to the project
         nodeCypher = `
           MATCH (e:Entity)
-          WHERE (toLower(e.name) CONTAINS toLower($project)
+          WHERE e.tenantId = $__tenantId
+             AND (toLower(e.name) CONTAINS toLower($project)
              OR toLower(e.summary) CONTAINS toLower($project))
              ${showExpired ? "" : "AND e.expired_at IS NULL"}
           WITH collect(e) AS projectNodes
           UNWIND projectNodes AS pn
           OPTIONAL MATCH (pn)-[r:RELATES_TO]-(connected:Entity)
-          WHERE connected.expired_at IS NULL OR $showExpired
+          WHERE connected.tenantId = $__tenantId AND (connected.expired_at IS NULL OR $showExpired)
           WITH projectNodes, collect(connected) AS connectedNodes
           UNWIND projectNodes + connectedNodes AS n
           RETURN DISTINCT n LIMIT $limit
         `;
         linkCypher = `
           MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-          WHERE (toLower(a.name) CONTAINS toLower($project)
+          WHERE a.tenantId = $__tenantId
+             AND (toLower(a.name) CONTAINS toLower($project)
              OR toLower(a.summary) CONTAINS toLower($project)
              OR toLower(b.name) CONTAINS toLower($project)
              OR toLower(b.summary) CONTAINS toLower($project))
@@ -58,14 +60,14 @@ export function registerRoutes(app, ctx) {
 
         if (!type || safeType === "Entity") {
           // Fetch entities up to a safe limit, sort in JS after categorization
-          nodeCypher = `MATCH (n:Entity) WHERE 1=1 ${entityFilter} RETURN n LIMIT 5000`;
+          nodeCypher = `MATCH (n:Entity) WHERE n.tenantId = $__tenantId ${entityFilter} RETURN n LIMIT 5000`;
         } else {
-          nodeCypher = `MATCH (n:${safeType}) WHERE 1=1 ${entityFilter} RETURN n LIMIT $limit`;
+          nodeCypher = `MATCH (n:${safeType}) WHERE n.tenantId = $__tenantId ${entityFilter} RETURN n LIMIT $limit`;
         }
 
         linkCypher = `
           MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-          WHERE 1=1 ${relFilter}
+          WHERE a.tenantId = $__tenantId ${relFilter}
           RETURN a.uuid AS source, b.uuid AS target,
                  r.name AS label, r.fact AS fact,
                  r.created_at AS created_at, r.valid_at AS valid_at,
@@ -137,16 +139,16 @@ export function registerRoutes(app, ctx) {
       const name = req.params.name;
       const depth = Math.min(Math.max(parseInt(req.query.depth) || 2, 1), 4);
       const showExpired = req.query.showExpired === "true";
-      const egoEntityFilter = showExpired ? "" : "WHERE neighbor.expired_at IS NULL";
       const relFilter = showExpired ? "" : "AND r.expired_at IS NULL";
 
       // Variable-length relationship pattern for multi-hop BFS
       const nodeRecords = await query(driver, `
         MATCH (start:Entity {name: $name})
+        WHERE start.tenantId = $__tenantId
         CALL {
           WITH start
           MATCH (start)-[:RELATES_TO*1..${depth}]-(neighbor:Entity)
-          ${egoEntityFilter}
+          WHERE neighbor.tenantId = $__tenantId ${showExpired ? "" : "AND neighbor.expired_at IS NULL"}
           RETURN neighbor AS n
           UNION
           WITH start
@@ -175,7 +177,7 @@ export function registerRoutes(app, ctx) {
 
       const linkRecords = await query(driver, `
         MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-        WHERE a.uuid IN $ids AND b.uuid IN $ids ${relFilter}
+        WHERE a.tenantId = $__tenantId AND a.uuid IN $ids AND b.uuid IN $ids ${relFilter}
         RETURN a.uuid AS source, b.uuid AS target,
                r.name AS label, r.fact AS fact,
                r.created_at AS created_at, r.expired_at AS expired_at,
