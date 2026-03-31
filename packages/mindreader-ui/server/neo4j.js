@@ -2,6 +2,7 @@
  * Neo4j connection manager for MindReader
  */
 import neo4j from "neo4j-driver";
+import { getTenantId } from "./lib/tenant.js";
 
 let _driver = null;
 
@@ -37,7 +38,8 @@ export async function closeDriver() {
 export async function query(driver, cypher, params = {}) {
   const session = driver.session();
   try {
-    const result = await session.run(cypher, params);
+    const augmented = { ...params, __tenantId: getTenantId() };
+    const result = await session.run(cypher, augmented);
     return recordsToPlain(result.records);
   } finally {
     await session.close();
@@ -50,7 +52,8 @@ export async function query(driver, cypher, params = {}) {
 export async function readQuery(driver, cypher, params = {}) {
   const session = driver.session();
   try {
-    const result = await session.executeRead((tx) => tx.run(cypher, params));
+    const augmented = { ...params, __tenantId: getTenantId() };
+    const result = await session.executeRead((tx) => tx.run(cypher, augmented));
     return recordsToPlain(result.records);
   } finally {
     await session.close();

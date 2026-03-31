@@ -44,6 +44,48 @@ const MIGRATIONS = [
          SET e.summary = left(e.summary, 200)
          RETURN count(e) AS affected`,
   },
+  {
+    name: "20260331_add_tenantId_to_entities",
+    description: "Add tenantId='master' to all Entity nodes",
+    up: `MATCH (e:Entity) WHERE e.tenantId IS NULL
+         SET e.tenantId = "master"
+         RETURN count(e) AS affected`,
+  },
+  {
+    name: "20260331_add_tenantId_to_episodic",
+    description: "Add tenantId='master' to all Episodic nodes",
+    up: `MATCH (e:Episodic) WHERE e.tenantId IS NULL
+         SET e.tenantId = "master"
+         RETURN count(e) AS affected`,
+  },
+  {
+    name: "20260331_add_tenantId_to_tokenusage",
+    description: "Add tenantId='master' to all TokenUsage nodes",
+    up: `MATCH (t:TokenUsage) WHERE t.tenantId IS NULL
+         SET t.tenantId = "master"
+         RETURN count(t) AS affected`,
+  },
+  {
+    name: "20260331_add_tenantId_to_auditlog",
+    description: "Add tenantId='master' to all AuditLog nodes",
+    up: `MATCH (a:AuditLog) WHERE a.tenantId IS NULL
+         SET a.tenantId = "master"
+         RETURN count(a) AS affected`,
+  },
+  {
+    name: "20260331_add_tenantId_to_relates_to",
+    description: "Add tenantId='master' to all RELATES_TO edges",
+    up: `MATCH ()-[r:RELATES_TO]->() WHERE r.tenantId IS NULL
+         SET r.tenantId = "master"
+         RETURN count(r) AS affected`,
+  },
+  {
+    name: "20260331_add_tenantId_to_mentions",
+    description: "Add tenantId='master' to all MENTIONS edges",
+    up: `MATCH ()-[r:MENTIONS]->() WHERE r.tenantId IS NULL
+         SET r.tenantId = "master"
+         RETURN count(r) AS affected`,
+  },
 ];
 
 /**

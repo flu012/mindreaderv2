@@ -4,6 +4,7 @@
 import neo4j from "neo4j-driver";
 import { query } from "../neo4j.js";
 import { callLLM } from "../lib/llm.js";
+import { getTenantId } from "../lib/tenant.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger } = ctx;
@@ -24,6 +25,7 @@ export function registerRoutes(app, ctx) {
         // Duplicate entities: same name, multiple nodes
         query(driver,
           `MATCH (e:Entity)
+           WHERE e.tenantId = $__tenantId
            WITH toLower(e.name) AS lname, collect(e.uuid) AS uuids, collect(e.summary) AS summaries, collect(e.name) AS names
            WHERE size(uuids) > 1
            RETURN names[0] AS name, size(uuids) AS count, uuids, summaries`
@@ -31,28 +33,31 @@ export function registerRoutes(app, ctx) {
         // Garbage episodic nodes
         query(driver,
           `MATCH (e:Episodic)
-           WHERE e.content STARTS WITH 'Conversation info'
+           WHERE e.tenantId = $__tenantId
+             AND (e.content STARTS WITH 'Conversation info'
               OR e.content STARTS WITH 'Note: The previous agent'
-              OR e.content STARTS WITH "System: ["
+              OR e.content STARTS WITH "System: [")
            RETURN id(e) AS id, substring(e.content, 0, 100) AS content_preview,
                   e.source_description AS source, e.created_at AS created_at`
         ),
         // Test episodic nodes
         query(driver,
           `MATCH (e:Episodic)
-           WHERE e.source_description IN ['test-setup', 'test', 'performance-test', 'verification-test']
+           WHERE e.tenantId = $__tenantId
+             AND e.source_description IN ['test-setup', 'test', 'performance-test', 'verification-test']
            RETURN id(e) AS id, substring(e.content, 0, 100) AS content_preview,
                   e.source_description AS source, e.created_at AS created_at`
         ),
         // Expired relationships (Graphiti-invalidated only, not decay-expired)
         query(driver,
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-           WHERE r.expired_at IS NOT NULL AND r.strength IS NULL
+           WHERE a.tenantId = $__tenantId AND r.expired_at IS NOT NULL AND r.strength IS NULL
            RETURN a.name AS source, r.name AS relation, b.name AS target, r.expired_at AS expired_at`
         ),
         // Duplicate relationships: same source->target with same relation name
         query(driver,
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+           WHERE a.tenantId = $__tenantId
            WITH a.name AS source, b.name AS target, r.name AS relation, count(r) AS cnt
            WHERE cnt > 1
            RETURN source, relation, target, cnt AS count`
@@ -60,7 +65,8 @@ export function registerRoutes(app, ctx) {
         // Orphan entities: no RELATES_TO or MENTIONS relationships
         query(driver,
           `MATCH (e:Entity)
-           WHERE NOT (e)-[:RELATES_TO]-() AND NOT (e)-[:MENTIONS]-() AND NOT (e)<-[:MENTIONS]-()
+           WHERE e.tenantId = $__tenantId
+             AND NOT (e)-[:RELATES_TO]-() AND NOT (e)-[:MENTIONS]-() AND NOT (e)<-[:MENTIONS]-()
            RETURN e.name AS name, e.summary AS summary, e.uuid AS uuid`
         ),
       ]);
@@ -120,6 +126,7 @@ export function registerRoutes(app, ctx) {
         // For each group of duplicates, keep the earliest created, delete the rest
         const dupes = await query(driver,
           `MATCH (e:Entity)
+           WHERE e.tenantId = $__tenantId
            WITH toLower(e.name) AS lname, e ORDER BY e.created_at ASC
            WITH lname, collect(e) AS nodes
            WHERE size(nodes) > 1
@@ -133,9 +140,10 @@ export function registerRoutes(app, ctx) {
       if (safeActions.includes("garbage_episodic")) {
         const res2 = await query(driver,
           `MATCH (e:Episodic)
-           WHERE e.content STARTS WITH 'Conversation info'
+           WHERE e.tenantId = $__tenantId
+             AND (e.content STARTS WITH 'Conversation info'
               OR e.content STARTS WITH 'Note: The previous agent'
-              OR e.content STARTS WITH "System: ["
+              OR e.content STARTS WITH "System: [")
            DETACH DELETE e
            RETURN count(e) AS deleted`
         );
@@ -145,7 +153,7 @@ export function registerRoutes(app, ctx) {
       if (safeActions.includes("test_episodic")) {
         const res2 = await query(driver,
           `MATCH (e:Episodic)
-           WHERE e.source_description IN $sources
+           WHERE e.tenantId = $__tenantId AND e.source_description IN $sources
            DETACH DELETE e
            RETURN count(e) AS deleted`,
           { sources: ["test-setup", "test", "performance-test", "verification-test"] }
@@ -155,8 +163,8 @@ export function registerRoutes(app, ctx) {
 
       if (safeActions.includes("expired_relationships")) {
         const res2 = await query(driver,
-          `MATCH ()-[r:RELATES_TO]->()
-           WHERE r.expired_at IS NOT NULL AND r.strength IS NULL
+          `MATCH (a:Entity)-[r:RELATES_TO]->()
+           WHERE a.tenantId = $__tenantId AND r.expired_at IS NOT NULL AND r.strength IS NULL
            DELETE r
            RETURN count(r) AS deleted`
         );
@@ -166,6 +174,7 @@ export function registerRoutes(app, ctx) {
       if (safeActions.includes("duplicate_relationships")) {
         const res2 = await query(driver,
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+           WHERE a.tenantId = $__tenantId
            WITH a, b, r.name AS relName, collect(r) AS rels
            WHERE size(rels) > 1
            UNWIND rels[1..] AS toDelete
@@ -179,7 +188,7 @@ export function registerRoutes(app, ctx) {
         if (Array.isArray(orphan_uuids) && orphan_uuids.length > 0) {
           const res2 = await query(driver,
             `MATCH (e:Entity)
-             WHERE e.uuid IN $uuids
+             WHERE e.tenantId = $__tenantId AND e.uuid IN $uuids
                AND NOT (e)-[:RELATES_TO]-() AND NOT (e)-[:MENTIONS]-() AND NOT (e)<-[:MENTIONS]-()
              DETACH DELETE e
              RETURN count(e) AS deleted`,
@@ -193,9 +202,9 @@ export function registerRoutes(app, ctx) {
 
       // Get totals after cleanup
       const [totals] = await query(driver,
-        `MATCH (n:Entity) WITH count(n) AS entities
-         OPTIONAL MATCH (ep:Episodic) WITH entities, count(ep) AS episodic
-         OPTIONAL MATCH ()-[r]->() RETURN entities, episodic, count(r) AS relationships`
+        `MATCH (n:Entity) WHERE n.tenantId = $__tenantId WITH count(n) AS entities
+         OPTIONAL MATCH (ep:Episodic) WHERE ep.tenantId = $__tenantId WITH entities, count(ep) AS episodic
+         OPTIONAL MATCH (a:Entity)-[r]->(b:Entity) WHERE a.tenantId = $__tenantId RETURN entities, episodic, count(r) AS relationships`
       );
 
       res.json({
@@ -220,15 +229,18 @@ export function registerRoutes(app, ctx) {
       const { confirm, dryRun } = req.body || {};
       const session = driver.session();
       try {
+        const __tenantId = getTenantId();
         // Count "other" entities
         const countResult = await session.run(
-          `MATCH (e:Entity) WHERE e.category = 'other' RETURN count(e) AS cnt`
+          `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.category = 'other' RETURN count(e) AS cnt`,
+          { __tenantId }
         );
         const otherCount = countResult.records[0]?.get("cnt")?.toNumber?.() || countResult.records[0]?.get("cnt") || 0;
 
         // Count orphaned Episodic nodes (direction-agnostic)
         const orphanResult = await session.run(
-          `MATCH (ep:Episodic) WHERE NOT (ep)-[:MENTIONS]-(:Entity) RETURN count(ep) AS cnt`
+          `MATCH (ep:Episodic) WHERE ep.tenantId = $__tenantId AND NOT (ep)-[:MENTIONS]-(:Entity) RETURN count(ep) AS cnt`,
+          { __tenantId }
         );
         const orphanCount = orphanResult.records[0]?.get("cnt")?.toNumber?.() || orphanResult.records[0]?.get("cnt") || 0;
 
@@ -239,11 +251,17 @@ export function registerRoutes(app, ctx) {
 
         // Confirmed: actually delete
         if (otherCount > 0) {
-          await session.run(`MATCH (e:Entity) WHERE e.category = 'other' DETACH DELETE e`);
+          await session.run(
+            `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.category = 'other' DETACH DELETE e`,
+            { __tenantId }
+          );
         }
 
         if (orphanCount > 0) {
-          await session.run(`MATCH (ep:Episodic) WHERE NOT (ep)-[:MENTIONS]-(:Entity) DETACH DELETE ep`);
+          await session.run(
+            `MATCH (ep:Episodic) WHERE ep.tenantId = $__tenantId AND NOT (ep)-[:MENTIONS]-(:Entity) DETACH DELETE ep`,
+            { __tenantId }
+          );
         }
 
         logger?.info?.(`MindReader: deleted ${otherCount} 'other' entities, ${orphanCount} orphaned episodes`);
@@ -265,27 +283,35 @@ export function registerRoutes(app, ctx) {
     try {
       const session = driver.session();
       try {
+        const __tenantId = getTenantId();
         // Run sequentially — Neo4j doesn't allow parallel queries on a single session
         const selfLoops = await session.run(
           `MATCH (a:Entity)-[r:RELATES_TO]->(a)
-           RETURN elementId(r) AS eid, a.name AS entity, r.name AS relation, r.fact AS fact`
+           WHERE a.tenantId = $__tenantId
+           RETURN elementId(r) AS eid, a.name AS entity, r.name AS relation, r.fact AS fact`,
+          { __tenantId }
         );
         const longNames = await session.run(
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-           WHERE size(r.name) > 50
-           RETURN elementId(r) AS eid, a.name AS from, r.name AS relation, b.name AS to, r.fact AS fact`
+           WHERE a.tenantId = $__tenantId AND size(r.name) > 50
+           RETURN elementId(r) AS eid, a.name AS from, r.name AS relation, b.name AS to, r.fact AS fact`,
+          { __tenantId }
         );
         const duplicateEdges = await session.run(
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+           WHERE a.tenantId = $__tenantId
            WITH a.name AS source, b.name AS target, r.name AS relation, collect(elementId(r)) AS eids, collect(r.fact) AS facts
            WHERE size(eids) > 1
-           RETURN source, target, relation, eids, facts`
+           RETURN source, target, relation, eids, facts`,
+          { __tenantId }
         );
         const multiEdges = await session.run(
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+           WHERE a.tenantId = $__tenantId
            WITH a.name AS source, b.name AS target, collect({eid: elementId(r), relation: r.name, fact: r.fact}) AS edges
            WHERE size(edges) > 1
-           RETURN source, target, edges`
+           RETURN source, target, edges`,
+          { __tenantId }
         );
 
         const issues = [];
@@ -379,13 +405,15 @@ export function registerRoutes(app, ctx) {
 
       const session = driver.session();
       try {
+        const __tenantId = getTenantId();
         const result = await session.run(
           `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
+           WHERE a.tenantId = $__tenantId
            RETURN elementId(r) AS eid, a.name AS from, a.category AS fromCat,
                   r.name AS relation, r.fact AS fact,
                   b.name AS to, b.category AS toCat
            LIMIT $limit`,
-          { limit: neo4j.int(maxBatch) }
+          { limit: neo4j.int(maxBatch), __tenantId }
         );
 
         if (result.records.length === 0) {
@@ -466,7 +494,10 @@ If no issues are found, return an empty array: []`;
         }
 
         // Count total relationships for progress
-        const countResult = await session.run(`MATCH ()-[r:RELATES_TO]->() RETURN count(r) AS cnt`);
+        const countResult = await session.run(
+          `MATCH (a:Entity)-[r:RELATES_TO]->() WHERE a.tenantId = $__tenantId RETURN count(r) AS cnt`,
+          { __tenantId }
+        );
         const totalRels = countResult.records[0]?.get("cnt")?.toNumber?.() || countResult.records[0]?.get("cnt") || 0;
 
         res.json({ issues, reviewed: rels.length, total: totalRels });
@@ -496,6 +527,7 @@ If no issues are found, return an empty array: []`;
 
       const session = driver.session();
       try {
+        const __tenantId = getTenantId();
         let fixed = 0;
         let deleted = 0;
         let reversed = 0;
@@ -509,10 +541,10 @@ If no issues are found, return an empty array: []`;
             // Reverse: read old edge, delete it, create new one with swapped source/target
             // Use explicit transaction for atomicity
             const readResult = await session.run(
-              `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity) WHERE elementId(r) = $eid
+              `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity) WHERE a.tenantId = $__tenantId AND elementId(r) = $eid
                RETURN elementId(a) AS aId, elementId(b) AS bId, r.name AS name, r.fact AS fact,
                       properties(r) AS props`,
-              { eid }
+              { eid, __tenantId }
             );
             if (readResult.records.length > 0) {
               const rec = readResult.records[0];
@@ -543,10 +575,10 @@ If no issues are found, return an empty array: []`;
           } else if (action === "rename" && suggestedName) {
             // Rename: update the relation name
             const result = await session.run(
-              `MATCH ()-[r:RELATES_TO]->() WHERE elementId(r) = $eid
+              `MATCH (a:Entity)-[r:RELATES_TO]->() WHERE a.tenantId = $__tenantId AND elementId(r) = $eid
                SET r.name = $newName
                RETURN count(r) AS cnt`,
-              { eid, newName: suggestedName }
+              { eid, newName: suggestedName, __tenantId }
             );
             if ((result.records[0]?.get("cnt")?.toNumber?.() || result.records[0]?.get("cnt") || 0) > 0) {
               renamed++;
@@ -555,8 +587,8 @@ If no issues are found, return an empty array: []`;
           } else {
             // Default: delete
             const result = await session.run(
-              `MATCH ()-[r:RELATES_TO]->() WHERE elementId(r) = $eid DELETE r RETURN count(r) AS cnt`,
-              { eid }
+              `MATCH (a:Entity)-[r:RELATES_TO]->() WHERE a.tenantId = $__tenantId AND elementId(r) = $eid DELETE r RETURN count(r) AS cnt`,
+              { eid, __tenantId }
             );
             deleted += result.records[0]?.get("cnt")?.toNumber?.() || result.records[0]?.get("cnt") || 0;
             fixed++;

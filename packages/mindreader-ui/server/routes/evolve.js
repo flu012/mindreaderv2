@@ -13,7 +13,8 @@ export function registerRoutes(app, ctx) {
   function entityMatch(paramName = "name", alias = "e") {
     return (val) => {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-      return isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+      const idClause = isUuid ? `${alias}.uuid = $${paramName}` : `toLower(${alias}.name) = toLower($${paramName})`;
+      return `${alias}.tenantId = $__tenantId AND ${idClause}`;
     };
   }
 
@@ -113,7 +114,7 @@ export function registerRoutes(app, ctx) {
       // Phase 1: Internal Discovery — find connections to existing graph entities
       const graphEntities = await query(driver,
         `MATCH (e:Entity)
-         WHERE e.expired_at IS NULL AND toLower(e.name) <> toLower($name)
+         WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND toLower(e.name) <> toLower($name)
          WITH e, CASE
            WHEN toLower(e.summary) CONTAINS toLower($name) THEN 3
            WHEN ANY(tag IN coalesce(e.tags, []) WHERE toLower(tag) CONTAINS toLower($name)) THEN 2
@@ -453,6 +454,7 @@ You may include reasoning text between [ENTITY]/[REL] lines. Aim for 10-25 new e
                completionTokens: $completionTokens,
                totalTokens: $totalTokens,
                operation: "evolve",
+               tenantId: $__tenantId,
                timestamp: datetime()
              })`,
             {

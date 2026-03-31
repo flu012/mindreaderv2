@@ -78,6 +78,7 @@ export function loadConfig(overrides = {}) {
     cachePath: overrides.cachePath || process.env.MINDREADER_CACHE || path.join(process.env.HOME || process.env.USERPROFILE || homedir(), ".mindreader", "cache"),
     pythonPath: overrides.pythonPath || process.env.MINDGRAPH_PYTHON_PATH || defaultPythonPath,
     apiToken: overrides.apiToken || process.env.API_TOKEN || "",
+    internalSecret: overrides.internalSecret || process.env.INTERNAL_SECRET || "",
     seqUrl: overrides.seqUrl || process.env.SEQ_URL || "",
     seqApiKey: overrides.seqApiKey || process.env.SEQ_API_KEY || "",
     autoCapture: overrides.autoCapture ?? (process.env.AUTO_CAPTURE !== "false"),

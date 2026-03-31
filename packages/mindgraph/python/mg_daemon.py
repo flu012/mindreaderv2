@@ -92,14 +92,14 @@ def _unique_profiles(profiles):
 # ---------------------------------------------------------------------------
 # Command handlers — return (output_text, data_dict)
 # ---------------------------------------------------------------------------
-async def cmd_search(args):
+async def cmd_search(args, tenant_id="master"):
     g = _get_graphiti()
     query = args["query"]
     limit = int(args.get("limit", 10))
     json_output = args.get("json_output", False)
     group = args.get("group")
 
-    group_ids = [group] if group else None
+    group_ids = [group] if group else [tenant_id]
     results = await g.search(query=query, num_results=limit, group_ids=group_ids)
 
     if not results:
@@ -123,9 +123,9 @@ async def cmd_search(args):
         driver = _get_neo4j_driver()
         with driver.session() as session:
             result = session.run(
-                "MATCH (e:Entity) WHERE e.uuid IN $uuids "
+                "MATCH (e:Entity) WHERE e.uuid IN $uuids AND e.tenantId = $tenantId "
                 "RETURN e.uuid AS uuid, e.name AS name, e.category AS category, e.tags AS tags",
-                uuids=list(entity_uuids),
+                uuids=list(entity_uuids), tenantId=tenant_id,
             )
             for rec in result:
                 profiles[rec["uuid"]] = {
@@ -162,14 +162,15 @@ async def cmd_search(args):
     return "\n".join(lines), None
 
 
-async def cmd_entities(args):
+async def cmd_entities(args, tenant_id="master"):
     limit = int(args.get("limit", 30))
     driver = _get_neo4j_driver()
     with driver.session() as session:
         result = session.run(
-            "MATCH (n:Entity) RETURN n.name AS name, n.summary AS summary "
+            "MATCH (n:Entity) WHERE n.tenantId = $tenantId "
+            "RETURN n.name AS name, n.summary AS summary "
             "ORDER BY n.created_at DESC LIMIT $limit",
-            limit=limit,
+            limit=limit, tenantId=tenant_id,
         )
         entities = list(result)
 
@@ -184,12 +185,12 @@ async def cmd_entities(args):
     return "\n".join(lines), None
 
 
-async def cmd_add(args):
+async def cmd_add(args, tenant_id="master"):
     content = args["content"]
     source = args.get("source", "agent")
     project = args.get("project")
     do_async = args.get("async", False)
-    group = args.get("group", "")
+    group = args.get("group", "") or tenant_id
     custom_instructions = args.get("custom_instructions")
 
     # Duplicate check
@@ -206,7 +207,7 @@ async def cmd_add(args):
     g = _get_graphiti()
 
     # Conflict detection
-    similar = await g.search(query=project_content, num_results=5)
+    similar = await g.search(query=project_content, num_results=5, group_ids=[tenant_id])
     new_words = set(project_content.lower().split())
     conflicting = []
     for s in (similar or []):
@@ -301,13 +302,14 @@ async def handle_request(line):
     req_id = req.get("id")
     cmd = req.get("cmd")
     args = req.get("args", {})
+    tenant_id = args.pop("tenantId", "master")
 
     handler = COMMANDS.get(cmd)
     if not handler:
         return json.dumps({"id": req_id, "ok": False, "error": f"Unknown command: {cmd}"}) + "\n"
 
     try:
-        output, data = await handler(args)
+        output, data = await handler(args, tenant_id)
         resp = {"id": req_id, "ok": True, "output": output}
         if data is not None:
             resp["data"] = data

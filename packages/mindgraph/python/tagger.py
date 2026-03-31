@@ -69,12 +69,13 @@ def _call_llm(prompt):
     return data if isinstance(data, list) else []
 
 
-def tag_entities(force=False, batch_size=50):
+def tag_entities(force=False, batch_size=50, tenant_id="master"):
     """Batch-tag entities using LLM. Paginated.
 
     Args:
         force: If True, re-tag all entities. If False, only tag entities where tags IS NULL.
         batch_size: Number of entities per LLM batch.
+        tenant_id: Tenant to filter entities by.
 
     Returns:
         Total number of entities tagged.
@@ -89,7 +90,7 @@ def tag_entities(force=False, batch_size=50):
             with driver.session() as session:
                 if force:
                     cypher = (
-                        "MATCH (e:Entity) "
+                        "MATCH (e:Entity) WHERE e.tenantId = $tenantId "
                         "RETURN e.name AS name, e.summary AS summary, "
                         "e.category AS category, elementId(e) AS eid "
                         "ORDER BY e.name "
@@ -97,12 +98,12 @@ def tag_entities(force=False, batch_size=50):
                     )
                 else:
                     cypher = (
-                        "MATCH (e:Entity) WHERE e.tags IS NULL "
+                        "MATCH (e:Entity) WHERE e.tenantId = $tenantId AND e.tags IS NULL "
                         "RETURN e.name AS name, e.summary AS summary, "
                         "e.category AS category, elementId(e) AS eid "
                         "LIMIT $limit"
                     )
-                params = {"limit": batch_size, "skip": (batch_num - 1) * batch_size}
+                params = {"limit": batch_size, "skip": (batch_num - 1) * batch_size, "tenantId": tenant_id}
                 result = session.run(cypher, params)
                 entities = [dict(r) for r in result]
 

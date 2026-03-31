@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { getDriver, closeDriver } from "./neo4j.js";
 import { loadConfig } from "./config.js";
 import { createDaemon } from "./lib/daemon.js";
+import { tenantMiddleware } from "./lib/tenant.js";
 import { getCategories, seedDefaultCategories, createAutoCategorizer } from "./lib/categorizer.js";
 import { createDecayJob } from "./lib/decay.js";
 
@@ -48,6 +49,9 @@ export function createServer(config, logger) {
     };
     next();
   });
+
+  // Tenant context — must be before all /api/ routes
+  app.use("/api", tenantMiddleware(config));
 
   // Serve static UI files
   const uiDist = path.resolve(__dirname, "../ui/dist");

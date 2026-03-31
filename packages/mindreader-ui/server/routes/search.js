@@ -22,7 +22,8 @@ export function registerRoutes(app, ctx) {
       // Search entities by name and summary
       const results = await query(driver,
         `MATCH (e:Entity)
-         WHERE (toLower(e.name) CONTAINS toLower($q)
+         WHERE e.tenantId = $__tenantId
+           AND (toLower(e.name) CONTAINS toLower($q)
             OR toLower(e.summary) CONTAINS toLower($q))
            AND e.expired_at IS NULL
          RETURN e
@@ -34,7 +35,8 @@ export function registerRoutes(app, ctx) {
       // Also search facts
       const factResults = await query(driver,
         `MATCH (a:Entity)-[r:RELATES_TO]->(b:Entity)
-         WHERE (toLower(r.fact) CONTAINS toLower($q)
+         WHERE a.tenantId = $__tenantId
+           AND (toLower(r.fact) CONTAINS toLower($q)
             OR toLower(r.name) CONTAINS toLower($q))
            AND r.expired_at IS NULL
            AND a.expired_at IS NULL AND b.expired_at IS NULL
@@ -62,22 +64,22 @@ export function registerRoutes(app, ctx) {
   app.get("/api/stats", async (req, res) => {
     try {
       const nodeCounts = await query(driver,
-        `MATCH (n) RETURN labels(n)[0] AS label, count(n) AS count ORDER BY count DESC`
+        `MATCH (n) WHERE n.tenantId = $__tenantId RETURN labels(n)[0] AS label, count(n) AS count ORDER BY count DESC`
       );
 
       const relCounts = await query(driver,
-        `MATCH ()-[r]->() RETURN type(r) AS type, count(r) AS count ORDER BY count DESC`
+        `MATCH (n)-[r]->() WHERE n.tenantId = $__tenantId RETURN type(r) AS type, count(r) AS count ORDER BY count DESC`
       );
 
       const [totals] = await query(driver,
-        `MATCH (n) WITH count(n) AS nodes
-         OPTIONAL MATCH ()-[r]->()
+        `MATCH (n) WHERE n.tenantId = $__tenantId WITH count(n) AS nodes
+         OPTIONAL MATCH (m)-[r]->() WHERE m.tenantId = $__tenantId
          RETURN nodes, count(r) AS relationships`
       );
 
       // Group entities by category
       const entityGroups = await query(driver,
-        `MATCH (e:Entity) WHERE e.expired_at IS NULL
+        `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL
          RETURN e.name AS name, e.summary AS summary, COALESCE(e.category, e.group_id, '') AS category
          ORDER BY e.name`
       );
@@ -106,7 +108,8 @@ export function registerRoutes(app, ctx) {
     try {
       const results = await query(driver,
         `MATCH (e:Entity)
-         WHERE e.expired_at IS NULL AND (toLower(e.summary) CONTAINS 'project'
+         WHERE e.tenantId = $__tenantId
+           AND e.expired_at IS NULL AND (toLower(e.summary) CONTAINS 'project'
             OR toLower(e.summary) CONTAINS 'is a project')
          RETURN DISTINCT e.name AS name, e.summary AS summary, e.uuid AS uuid, e.created_at AS created_at
          ORDER BY e.name`
@@ -159,7 +162,7 @@ export function registerRoutes(app, ctx) {
       const allowedSorts = ["created_at", "name"];
       const safeSort = allowedSorts.includes(sort) ? sort : "created_at";
 
-      let whereClauses = ["e.expired_at IS NULL"];
+      let whereClauses = ["e.tenantId = $__tenantId", "e.expired_at IS NULL"];
       let params = {};
 
       if (q) {
@@ -226,7 +229,7 @@ export function registerRoutes(app, ctx) {
 
       const cypher = `
         MATCH (e:Entity)
-        WHERE e.created_at IS NOT NULL AND e.expired_at IS NULL
+        WHERE e.tenantId = $__tenantId AND e.created_at IS NOT NULL AND e.expired_at IS NULL
         WITH e ORDER BY e.created_at DESC
         RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary,
                e.created_at AS created_at, COALESCE(e.category, e.group_id, '') AS category, e.node_type AS node_type

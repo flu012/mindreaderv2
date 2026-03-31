@@ -308,3 +308,35 @@ mg --help   # or: python3 packages/mindgraph/python/mg_cli.py --help
 ### Cross-Platform Support
 
 MindReader runs on Linux, macOS, and Windows. The setup wizard detects the platform and uses the appropriate script (bash on Unix, PowerShell on Windows). The Python daemon uses platform-specific stdin handling (asyncio pipes on Unix, threaded readline on Windows).
+
+## Multi-Tenant Support
+
+MindReader supports multi-tenant isolation via a mandatory `tenantId` property on all data nodes and edges.
+
+### How It Works
+
+- Every Entity, Episodic, TokenUsage, AuditLog node and every RELATES_TO/MENTIONS edge has a `tenantId` property
+- In open-source (single-user) mode, tenantId is always "master"
+- In cloud mode, the upstream API proxy sets `X-Tenant-Id` header per authenticated user
+- All queries automatically filter by tenantId via AsyncLocalStorage context injection
+- Category and Migration nodes are system-wide (no tenant filtering)
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `INTERNAL_SECRET` | (empty) | Shared secret for X-Internal-Secret header validation. When set, only requests with this secret can set X-Tenant-Id to non-"master" values. |
+
+### Security
+
+- Express server should NOT be publicly accessible in cloud deployments
+- X-Internal-Secret header validates that tenant ID comes from the trusted proxy
+- AsyncLocalStorage ensures tenant context flows to all downstream queries automatically
+- Two-tenant isolation test suite (`tests/tenant-isolation.test.js`) validates no cross-tenant leakage
+
+### Running Isolation Tests
+
+```bash
+# Start MindReader server first, then:
+node tests/tenant-isolation.test.js
+```

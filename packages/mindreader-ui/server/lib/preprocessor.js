@@ -14,6 +14,7 @@
 import { callLLM } from "./llm.js";
 import { synthesizeDetails } from "./details.js";
 import { MAX_SUMMARY_LENGTH, MAX_DETAILS_LENGTH } from "./constants.js";
+import { getTenantId } from "./tenant.js";
 
 // Graphiti custom_extraction_instructions — always injected as last line of defense
 export const EXTRACTION_INSTRUCTIONS = `CRITICAL: Attributes are NOT entities. Do NOT create separate entity nodes for:
@@ -75,15 +76,17 @@ export async function findKnownEntities(text, driver, timeoutMs = 3000) {
   try {
     const session = driver.session();
     try {
+      const tenantId = getTenantId();
       const result = await Promise.race([
         session.run(
           `MATCH (e:Entity)
            WHERE ANY(word IN $words WHERE toLower(e.name) CONTAINS toLower(word))
+             AND e.tenantId = $tenantId
              AND e.expired_at IS NULL
            RETURN e.name AS name, e.summary AS summary, e.tags AS tags, e.category AS category
            ORDER BY size(e.name) ASC
            LIMIT 10`,
-          { words }
+          { words, tenantId }
         ),
         new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs)),
       ]);
@@ -238,11 +241,12 @@ export async function applyEntityUpdate(update, driver, config) {
   if (!update.name) return false;
   const session = driver.session();
   try {
+    const tenantId = getTenantId();
     // Fetch existing tags for deduplication
     const existing = await session.run(
-      `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+      `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) AND e.tenantId = $tenantId
        RETURN e.tags AS tags, e.summary AS summary, e.details AS details, e.category AS category`,
-      { name: update.name }
+      { name: update.name, tenantId }
     );
     if (existing.records.length === 0) return false; // entity not found
 
@@ -286,9 +290,9 @@ export async function applyEntityUpdate(update, driver, config) {
     }
 
     await session.run(
-      `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+      `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) AND e.tenantId = $tenantId
        SET e.tags = $tags, e.summary = $summary, e.details = $details, e.last_accessed_at = datetime()`,
-      { name: update.name, tags: mergedTags, summary: newSummary, details: newDetails }
+      { name: update.name, tags: mergedTags, summary: newSummary, details: newDetails, tenantId }
     );
     return true;
   } finally {

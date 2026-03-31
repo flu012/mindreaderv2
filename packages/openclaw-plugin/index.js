@@ -57,6 +57,7 @@ const DEFAULTS = {
   captureMaxChars: 2000,
   uiPort: 18900,
   uiEnabled: true,
+  tenantId: "master",
 };
 
 function bridgeConfig(openClawConfig) {
@@ -83,14 +84,8 @@ function bridgeConfig(openClawConfig) {
     apiToken: raw.apiToken,
     seqUrl: raw.seqUrl,
     seqApiKey: raw.seqApiKey,
+    tenantId: raw.tenantId || "master",
   };
-}
-
-async function serverFetch(port, path, options = {}) {
-  const url = `http://localhost:${port}${path}`;
-  const res = await fetch(url, options);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
 const mindreaderPlugin = {
@@ -102,6 +97,17 @@ const mindreaderPlugin = {
   register(api) {
     const cfg = bridgeConfig(api.pluginConfig || {});
     const port = cfg.uiPort || 18900;
+
+    async function serverFetch(port, path, options = {}) {
+      const url = `http://localhost:${port}${path}`;
+      const headers = {
+        ...(options.headers || {}),
+        "X-Tenant-Id": cfg.tenantId || "master",
+      };
+      const res = await fetch(url, { ...options, headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
 
     api.registerTool({
       name: "memory_search",

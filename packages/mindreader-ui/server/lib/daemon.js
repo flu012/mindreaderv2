@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { venvPython } from "../config.js";
+import { getTenantId } from "./tenant.js";
 
 const execFileAsync = promisify(execFile);
 const isWin = process.platform === "win32";
@@ -149,7 +150,7 @@ export function createDaemon(config, logger) {
     }
 
     const id = `req_${++_reqCounter}`;
-    const req = JSON.stringify({ id, cmd, args }) + "\n";
+    const req = JSON.stringify({ id, cmd, args: { ...args, tenantId: getTenantId() } }) + "\n";
     const contentLen = args.content ? args.content.length : 0;
     logger?.info?.(`daemon >> ${cmd} [${id}] content=${contentLen}c payload=${req.length}b timeout=${timeoutMs}ms`);
     const sentAt = Date.now();

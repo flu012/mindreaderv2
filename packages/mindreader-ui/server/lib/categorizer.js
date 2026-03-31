@@ -10,6 +10,7 @@
 
 import { query } from "../neo4j.js";
 import { callLLM } from "./llm.js";
+import { tenantStore, DEFAULT_TENANT, getTenantId } from "./tenant.js";
 
 // ---------------------------------------------------------------------------
 // Category cache
@@ -163,14 +164,16 @@ function createAutoCategorizer(driver, config, logger) {
     _categorizeLock = true;
     try {
       const cats = await getCategories(driver);
+      const tenantId = getTenantId();
       const session = driver.session();
       try {
         const result = await session.run(
           `MATCH (e:Entity)
-           WHERE e.category IS NULL OR e.category = '' OR e.tags IS NULL
+           WHERE e.tenantId = $tenantId AND (e.category IS NULL OR e.category = '' OR e.tags IS NULL)
            RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid,
                   e.category AS existingCategory
-           LIMIT 20`
+           LIMIT 20`,
+          { tenantId }
         );
         const uncategorized = result.records;
         if (uncategorized.length === 0) return;
@@ -276,8 +279,12 @@ The "category" field MUST be one of: ${validKeys.join(", ")}, other`;
   return {
     /** Run once after 5s delay, then every 60s */
     start() {
-      _initialTimeout = setTimeout(autoCategorizeNewEntities, 5000);
-      _interval = setInterval(autoCategorizeNewEntities, 60000);
+      _initialTimeout = setTimeout(() => {
+        tenantStore.run({ tenantId: DEFAULT_TENANT }, autoCategorizeNewEntities);
+      }, 5000);
+      _interval = setInterval(() => {
+        tenantStore.run({ tenantId: DEFAULT_TENANT }, autoCategorizeNewEntities);
+      }, 60000);
     },
     /** Stop the interval and clear pending timeout */
     stop() {

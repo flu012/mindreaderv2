@@ -5,6 +5,7 @@ import neo4j from "neo4j-driver";
 import { query } from "../neo4j.js";
 import { getCategories, categorizeEntity } from "../lib/categorizer.js";
 import { callLLM } from "../lib/llm.js";
+import { getTenantId } from "../lib/tenant.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, config, logger } = ctx;
@@ -18,7 +19,7 @@ export function registerRoutes(app, ctx) {
 
       // Get all entity categories to count
       const entityRows = await query(driver,
-        `MATCH (e:Entity) WHERE e.expired_at IS NULL RETURN COALESCE(e.category, e.group_id, '') AS category`
+        `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL RETURN COALESCE(e.category, e.group_id, '') AS category`
       );
       const catKeys = new Set(freshCats.map((c) => c.key));
 
@@ -35,7 +36,7 @@ export function registerRoutes(app, ctx) {
       }
       // Also auto-categorize entities with no manual category
       const uncat = await query(driver,
-        `MATCH (e:Entity) WHERE e.expired_at IS NULL AND ((e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys) RETURN e.name AS name, e.summary AS summary, COALESCE(e.category, e.group_id, '') AS category`,
+        `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND ((e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys) RETURN e.name AS name, e.summary AS summary, COALESCE(e.category, e.group_id, '') AS category`,
         { keys: [...catKeys] }
       );
       const autoCounts = {};
@@ -96,7 +97,7 @@ export function registerRoutes(app, ctx) {
 
       // Move entities from source to target
       const moved = await query(driver,
-        `MATCH (e:Entity) WHERE e.category = $sourceKey SET e.category = $targetKey RETURN count(e) AS count`,
+        `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.category = $sourceKey SET e.category = $targetKey RETURN count(e) AS count`,
         { sourceKey, targetKey }
       );
       const movedCount = moved[0]?.count?.toNumber?.() || moved[0]?.count || 0;
@@ -133,7 +134,7 @@ export function registerRoutes(app, ctx) {
       if (key === "other") {
         // Entities with no category or category not in any Category node
         const rows = await query(driver,
-          `MATCH (e:Entity) WHERE e.expired_at IS NULL AND ((e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys)
+          `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND ((e.group_id IS NULL AND e.category IS NULL) OR NOT COALESCE(e.category, e.group_id, '') IN $keys)
            RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.category, e.group_id, '') AS category
            ORDER BY e.name`,
           { keys: catKeys }
@@ -151,7 +152,7 @@ export function registerRoutes(app, ctx) {
       } else {
         // Entities with explicit category = key OR auto-categorized to key
         const rows = await query(driver,
-          `MATCH (e:Entity) WHERE e.expired_at IS NULL
+          `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL
            RETURN e.uuid AS uuid, e.name AS name, e.summary AS summary, e.created_at AS created_at, e.node_type AS node_type, COALESCE(e.category, e.group_id, '') AS category
            ORDER BY e.name`
         );
@@ -207,7 +208,7 @@ export function registerRoutes(app, ctx) {
 
       // Move all entities in this category to "other"
       const moved = await query(driver,
-        `MATCH (e:Entity) WHERE e.category = $key SET e.category = 'other' RETURN count(e) AS count`,
+        `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.category = $key SET e.category = 'other' RETURN count(e) AS count`,
         { key }
       );
       const movedCount = moved[0]?.count?.toNumber?.() || moved[0]?.count || 0;
@@ -233,17 +234,18 @@ export function registerRoutes(app, ctx) {
 
       let cypher;
       if (scope === "all") {
-        cypher = `MATCH (e:Entity) WHERE e.expired_at IS NULL RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat ORDER BY e.name SKIP $skip LIMIT $limit`;
+        cypher = `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat ORDER BY e.name SKIP $skip LIMIT $limit`;
       } else if (scope === "uncategorized") {
-        cypher = `MATCH (e:Entity) WHERE e.expired_at IS NULL AND (e.category IS NULL OR e.category = '') RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat LIMIT $limit`;
+        cypher = `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND (e.category IS NULL OR e.category = '') RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat LIMIT $limit`;
       } else {
         // Default: "other" — re-categorize entities currently tagged as "other"
-        cypher = `MATCH (e:Entity) WHERE e.expired_at IS NULL AND (e.category = 'other' OR e.category IS NULL OR e.category = '') RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat LIMIT $limit`;
+        cypher = `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND (e.category = 'other' OR e.category IS NULL OR e.category = '') RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid, e.category AS oldCat LIMIT $limit`;
       }
 
       const session = driver.session();
       try {
-        const result = await session.run(cypher, { limit: neo4j.int(maxBatch), skip: neo4j.int(safeSkip) });
+        const __tenantId = getTenantId();
+        const result = await session.run(cypher, { limit: neo4j.int(maxBatch), skip: neo4j.int(safeSkip), __tenantId });
         const records = result.records;
         if (records.length === 0) {
           return res.json({ message: "No entities to recategorize", processed: 0, remaining: 0 });
@@ -314,8 +316,8 @@ Return ONLY a JSON array: [{"idx": 0, "category": "person"}, ...]`;
           const cat = a.category;
           if (cat !== entity.oldCat) {
             await session.run(
-              `MATCH (e:Entity) WHERE elementId(e) = $eid SET e.category = $cat`,
-              { eid: entity.eid, cat }
+              `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND elementId(e) = $eid SET e.category = $cat`,
+              { eid: entity.eid, cat, __tenantId }
             );
             changes.push({ name: entity.name, from: entity.oldCat || "none", to: cat });
           }
@@ -325,13 +327,17 @@ Return ONLY a JSON array: [{"idx": 0, "category": "person"}, ...]`;
         let remaining;
         if (scope === "all") {
           // For "all" scope, remaining = total - (skip + batch processed)
-          const remainResult = await session.run(`MATCH (e:Entity) WHERE e.expired_at IS NULL RETURN count(e) AS cnt`);
+          const remainResult = await session.run(
+            `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL RETURN count(e) AS cnt`,
+            { __tenantId }
+          );
           const total = remainResult.records[0]?.get("cnt")?.toNumber?.() || remainResult.records[0]?.get("cnt") || 0;
           remaining = Math.max(0, total - safeSkip - records.length);
         } else {
           // For other/uncategorized scopes, re-count matching entities (already reflects changes)
           const remainResult = await session.run(
-            `MATCH (e:Entity) WHERE e.expired_at IS NULL AND (e.category = 'other' OR e.category IS NULL OR e.category = '') RETURN count(e) AS cnt`
+            `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND e.expired_at IS NULL AND (e.category = 'other' OR e.category IS NULL OR e.category = '') RETURN count(e) AS cnt`,
+            { __tenantId }
           );
           remaining = remainResult.records[0]?.get("cnt")?.toNumber?.() || remainResult.records[0]?.get("cnt") || 0;
         }

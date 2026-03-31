@@ -61,7 +61,7 @@ def categorize(name: str, summary: str) -> str:
     return "other"
 
 
-def categorize_new_entities(neo4j_uri: str, neo4j_user: str, neo4j_password: str):
+def categorize_new_entities(neo4j_uri: str, neo4j_user: str, neo4j_password: str, tenant_id: str = "master"):
     """Find entities with NULL/empty category and assign categories.
 
     Call this after add_episode() to categorize newly created entities.
@@ -72,8 +72,9 @@ def categorize_new_entities(neo4j_uri: str, neo4j_user: str, neo4j_password: str
     try:
         with driver.session() as session:
             result = session.run(
-                "MATCH (e:Entity) WHERE e.category IS NULL OR e.category = '' "
-                "RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid"
+                "MATCH (e:Entity) WHERE e.tenantId = $tenantId AND (e.category IS NULL OR e.category = '') "
+                "RETURN e.name AS name, e.summary AS summary, elementId(e) AS eid",
+                tenantId=tenant_id
             )
             records = list(result)
 

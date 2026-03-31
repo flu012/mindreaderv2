@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import neo4j from "neo4j-driver";
 import { query } from "../neo4j.js";
 import { MAX_SUMMARY_LENGTH, MAX_DETAILS_LENGTH, MAX_DIRECT_ENTITY_BATCH } from "../lib/constants.js";
+import { getTenantId } from "../lib/tenant.js";
 
 export function registerRoutes(app, ctx) {
   const { driver, logger } = ctx;
@@ -65,6 +66,7 @@ export function registerRoutes(app, ctx) {
 
       const session = driver.session();
       try {
+        const __tenantId = getTenantId();
         for (const entity of entities) {
           try {
             const name = entity.name.trim();
@@ -76,9 +78,9 @@ export function registerRoutes(app, ctx) {
 
             // Check if entity exists
             const existing = await session.run(
-              `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name)
+              `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND toLower(e.name) = toLower($name)
                RETURN e.uuid AS uuid, e.tags AS tags, e.summary AS summary, e.details AS details`,
-              { name }
+              { name, __tenantId }
             );
 
             let status;
@@ -100,8 +102,8 @@ export function registerRoutes(app, ctx) {
                 : "SET e.tags = $tags, e.summary = $summary, e.details = $details";
 
               await session.run(
-                `MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) ${setClause}`,
-                { name, tags: mergedTags, summary: newSummary, details: newDetails, category }
+                `MATCH (e:Entity) WHERE e.tenantId = $__tenantId AND toLower(e.name) = toLower($name) ${setClause}`,
+                { name, tags: mergedTags, summary: newSummary, details: newDetails, category, __tenantId }
               );
               status = "updated";
               updatedCount++;
@@ -110,11 +112,11 @@ export function registerRoutes(app, ctx) {
               await session.run(
                 `CREATE (e:Entity {
                   uuid: $uuid, name: $name, summary: $summary, details: $details,
-                  category: $category, tags: $tags,
+                  category: $category, tags: $tags, tenantId: $__tenantId,
                   created_at: datetime($now), node_type: "normal",
                   strength: 1.0, last_accessed_at: datetime($now), expired_at: null
                 })`,
-                { uuid: randomUUID(), name, summary, details, category: category || "other", tags, now }
+                { uuid: randomUUID(), name, summary, details, category: category || "other", tags, now, __tenantId }
               );
               status = "created";
               createdCount++;
@@ -129,8 +131,8 @@ export function registerRoutes(app, ctx) {
 
                 // Check if target already exists (case-insensitive) before MERGE
                 const existingTarget = await session.run(
-                  `MATCH (t:Entity) WHERE toLower(t.name) = toLower($targetName) RETURN t.name AS name LIMIT 1`,
-                  { targetName }
+                  `MATCH (t:Entity) WHERE t.tenantId = $__tenantId AND toLower(t.name) = toLower($targetName) RETURN t.name AS name LIMIT 1`,
+                  { targetName, __tenantId }
                 );
                 const actualTargetName = existingTarget.records.length > 0
                   ? existingTarget.records[0].get("name")
@@ -138,24 +140,24 @@ export function registerRoutes(app, ctx) {
 
                 // MERGE target entity using the actual name (preserves original casing)
                 await session.run(
-                  `MERGE (t:Entity {name: $actualTargetName})
+                  `MERGE (t:Entity {name: $actualTargetName, tenantId: $__tenantId})
                    ON CREATE SET t.uuid = $uuid, t.summary = "", t.details = "",
                      t.category = "other", t.tags = [],
                      t.created_at = datetime($now), t.node_type = "normal",
                      t.strength = 1.0, t.last_accessed_at = datetime($now), t.expired_at = null`,
-                  { actualTargetName, uuid: randomUUID(), now }
+                  { actualTargetName, uuid: randomUUID(), now, __tenantId }
                 );
 
                 // Create the relationship
                 await session.run(
-                  `MATCH (a:Entity) WHERE toLower(a.name) = toLower($source)
-                   MATCH (b:Entity) WHERE toLower(b.name) = toLower($target)
+                  `MATCH (a:Entity) WHERE a.tenantId = $__tenantId AND toLower(a.name) = toLower($source)
+                   MATCH (b:Entity) WHERE b.tenantId = $__tenantId AND toLower(b.name) = toLower($target)
                    CREATE (a)-[:RELATES_TO {
-                     name: $relType, fact: $fact,
+                     name: $relType, fact: $fact, tenantId: $__tenantId,
                      created_at: datetime($now),
                      strength: 1.0, last_accessed_at: datetime($now)
                    }]->(b)`,
-                  { source: name, target: targetName, relType, fact, now }
+                  { source: name, target: targetName, relType, fact, now, __tenantId }
                 );
                 relCount++;
               }
