@@ -1,7 +1,15 @@
 /**
  * Auth routes — POST /api/auth/login, POST /api/auth/logout
  */
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { signJwt, checkRateLimit } from "../lib/auth.js";
+
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export function registerRoutes(app, ctx) {
   const { config, logger } = ctx;
@@ -26,7 +34,7 @@ export function registerRoutes(app, ctx) {
       return res.status(503).json({ error: "Authentication not configured. Run setup wizard." });
     }
 
-    if (email !== adminEmail || password !== adminPassword) {
+    if (!safeEqual(email, adminEmail) || !safeEqual(password, adminPassword)) {
       logger?.warn?.(`Failed login attempt for ${email} from ${ip}`);
       return res.status(401).json({ error: "Invalid credentials" });
     }
@@ -51,7 +59,8 @@ export function registerRoutes(app, ctx) {
     res.json({
       ok: true,
       user: { email, tenantId: "master" },
-      // Also return token for programmatic clients that can't use cookies
+      // Token in body for programmatic clients (CLI, MCP) that can't use cookies.
+      // Browser UI should use the httpOnly cookie instead.
       token,
     });
   });

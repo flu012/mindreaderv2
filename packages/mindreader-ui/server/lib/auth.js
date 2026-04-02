@@ -10,7 +10,7 @@
  * Login endpoint validates email/password against .env values.
  * JWT contains tenantId claim for multi-tenant support.
  */
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
  * Generate a JWT manually (no external dependency).
@@ -38,7 +38,10 @@ export function verifyJwt(token, secret) {
 
     const sigInput = `${parts[0]}.${parts[1]}`;
     const expectedSig = createHmac("sha256", secret).update(sigInput).digest("base64url");
-    if (expectedSig !== parts[2]) return null;
+    // Timing-safe comparison to prevent signature guessing
+    const sigBuf = Buffer.from(parts[2]);
+    const expectedBuf = Buffer.from(expectedSig);
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) return null;
 
     const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
@@ -59,6 +62,12 @@ const WINDOW_MS = 60000;
 
 export function checkRateLimit(ip) {
   const now = Date.now();
+  // Periodic cleanup — remove expired entries to prevent memory leak
+  if (loginAttempts.size > 1000) {
+    for (const [k, v] of loginAttempts) {
+      if (now > v.resetAt) loginAttempts.delete(k);
+    }
+  }
   const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
@@ -80,8 +89,9 @@ export function createAuthMiddleware(config) {
   const authEnabled = !!authSecret;
 
   return (req, res, next) => {
-    // Skip auth for login endpoint
-    if (req.path === "/api/auth/login") return next();
+    // Skip auth for auth endpoints (login, logout, status)
+    // req.path is relative to mount point ("/api"), so /api/auth/login → /auth/login
+    if (req.path.startsWith("/auth/")) return next();
 
     // Method 1: httpOnly cookie JWT
     const cookieToken = req.cookies?.mindreader_auth;
@@ -98,7 +108,9 @@ export function createAuthMiddleware(config) {
     const authHeader = req.headers.authorization;
     if (authHeader && apiToken) {
       const token = authHeader.replace(/^Bearer\s+/i, "");
-      if (token === apiToken) {
+      const tokenBuf = Buffer.from(token);
+      const expectedBuf = Buffer.from(apiToken);
+      if (tokenBuf.length === expectedBuf.length && timingSafeEqual(tokenBuf, expectedBuf)) {
         req.tenantId = req.headers["x-tenant-id"] || "master";
         return next();
       }
