@@ -18,13 +18,16 @@ export function tenantMiddleware(config) {
   const internalSecret = config?.internalSecret || process.env.INTERNAL_SECRET || "";
 
   return (req, res, next) => {
-    if (internalSecret && req.headers["x-internal-secret"] !== internalSecret) {
-      if (req.headers["x-tenant-id"] && req.headers["x-tenant-id"] !== DEFAULT_TENANT) {
+    // If auth middleware already set tenantId, use it
+    const tenantId = req.tenantId || req.headers["x-tenant-id"] || DEFAULT_TENANT;
+
+    // Validate internal secret for non-master tenant IDs from headers
+    if (internalSecret && req.headers["x-tenant-id"] && req.headers["x-tenant-id"] !== DEFAULT_TENANT) {
+      if (req.headers["x-internal-secret"] !== internalSecret) {
         return res.status(403).json({ error: "Invalid internal secret" });
       }
     }
 
-    const tenantId = req.headers["x-tenant-id"] || DEFAULT_TENANT;
     tenantStore.run({ tenantId }, () => {
       req.tenantId = tenantId;
       next();
