@@ -2,11 +2,17 @@
   "name": "mindreaderv2",
   "private": true,
   "version": "0.4.0",
-  "workspaces": ["packages/mindreader-ui", "packages/openclaw-plugin"],
+  "workspaces": [
+    "packages/mindreader-ui",
+    "packages/openclaw-plugin"
+  ],
   "scripts": {
     "start": "npm run start -w packages/mindreader-ui",
     "build": "npm run build -w packages/mindreader-ui",
     "dev": "npm run dev -w packages/mindreader-ui",
     "setup": "node -e \"const {execSync}=require('child_process');const isWin=process.platform==='win32';const cmd=isWin?'powershell -ExecutionPolicy Bypass -File scripts/setup.ps1':'bash scripts/setup.sh';execSync(cmd,{stdio:'inherit',cwd:__dirname})\""
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7"
   }
 }

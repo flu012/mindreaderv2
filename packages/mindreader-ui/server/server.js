@@ -6,16 +6,19 @@
  */
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDriver, closeDriver } from "./neo4j.js";
 import { loadConfig } from "./config.js";
 import { createDaemon } from "./lib/daemon.js";
+import { createAuthMiddleware } from "./lib/auth.js";
 import { tenantMiddleware } from "./lib/tenant.js";
 import { getCategories, seedDefaultCategories, createAutoCategorizer } from "./lib/categorizer.js";
 import { createDecayJob } from "./lib/decay.js";
 
 // Route modules
+import { registerRoutes as registerAuthRoutes } from "./routes/auth.js";
 import { registerRoutes as registerGraphRoutes } from "./routes/graph.js";
 import { registerRoutes as registerEntityRoutes } from "./routes/entity.js";
 import { registerRoutes as registerEvolveRoutes } from "./routes/evolve.js";
@@ -33,6 +36,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export function createServer(config, logger) {
   const app = express();
   app.use(cors());
+  app.use(cookieParser());
   app.use(express.json({ limit: "512kb" }));
 
   // Log request/response payload sizes for /api/ routes
@@ -50,6 +54,14 @@ export function createServer(config, logger) {
     next();
   });
 
+  // ========================================================================
+  // Auth middleware — cookie JWT, apiToken, internal secret, or disabled
+  // ========================================================================
+  app.use("/api", createAuthMiddleware(config));
+  if (!config.authSecret && !config.apiToken) {
+    logger?.warn?.("MindReader: Authentication disabled. Set AUTH_SECRET in .env to enable.");
+  }
+
   // Tenant context — must be before all /api/ routes
   app.use("/api", tenantMiddleware(config));
 
@@ -58,21 +70,6 @@ export function createServer(config, logger) {
   app.use(express.static(uiDist));
 
   const driver = getDriver(config);
-
-  // ========================================================================
-  // Auth middleware: bearer token auth for /api/ routes
-  // ========================================================================
-  if (config.apiToken) {
-    app.use("/api", (req, res, next) => {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || authHeader !== `Bearer ${config.apiToken}`) {
-        return res.status(401).json({ error: "Unauthorized. Provide a valid Bearer token." });
-      }
-      next();
-    });
-  } else {
-    logger?.warn?.("MindReader: No apiToken configured — all API endpoints are unauthenticated. Set apiToken in config for production use.");
-  }
 
   // ========================================================================
   // Python daemon (long-running process, eliminates cold-start)
@@ -91,6 +88,7 @@ export function createServer(config, logger) {
   // ========================================================================
   // Register all route modules
   // ========================================================================
+  registerAuthRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
   registerEntityRoutes(app, ctx);
   registerEvolveRoutes(app, ctx);
