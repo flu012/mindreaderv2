@@ -14,6 +14,26 @@ export default function Dashboard() {
     api.get('/usage').then(setUsage).catch(() => {});
   }, [user, navigate]);
 
+  // Inject auth header into all /api/* fetch calls (for MindReader graph components)
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+      if (url.startsWith('/api/')) {
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+          const headers = new Headers(init.headers || {});
+          if (!headers.has('Authorization')) {
+            headers.set('Authorization', `Bearer ${token}`);
+          }
+          init = { ...init, headers };
+        }
+      }
+      return originalFetch(input, init);
+    };
+    return () => { window.fetch = originalFetch; };
+  }, []);
+
   if (!user) return null;
 
   return (

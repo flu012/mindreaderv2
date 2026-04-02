@@ -64,6 +64,11 @@ class ApiClient {
         headers['Authorization'] = `Bearer ${this.getToken()}`;
         const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
         if (retry.ok) return retry.json();
+        // Only force logout if retry also gets auth error
+        if (retry.status !== 401 && retry.status !== 403) {
+          const err = await retry.json().catch(() => ({ detail: 'Request failed' }));
+          throw new Error(err.detail || err.error || `HTTP ${retry.status}`);
+        }
       }
 
       // Refresh failed — clear tokens and redirect
