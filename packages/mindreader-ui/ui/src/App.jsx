@@ -8,6 +8,7 @@ import CategoryView from "./components/CategoryView";
 import MaintenanceView from "./components/MaintenanceView";
 import ActivityLog from "./components/ActivityLog";
 import TokenDashboard from "./components/TokenDashboard";
+import LoginPage from "./components/LoginPage";
 import { CATEGORY_COLORS, CATEGORY_LABELS } from "./constants";
 
 const TABS = [
@@ -43,6 +44,8 @@ export default function App() {
   const [egoGraph, setEgoGraph] = useState(null); // { data, center } when viewing ego subgraph
   const [refreshKey, setRefreshKey] = useState(0);
   const [dynamicCategories, setDynamicCategories] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const graphRef = useRef();
   const searchInputRef = useRef();
 
@@ -61,6 +64,22 @@ export default function App() {
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // Check auth status on mount
+  useEffect(() => {
+    fetch("/api/auth/status")
+      .then(r => r.json())
+      .then(data => {
+        if (data.authenticated) setAuthUser(data);
+        else if (!data.authEnabled) setAuthUser({ email: "local", tenantId: "master" });
+        setAuthChecking(false);
+      })
+      .catch(() => {
+        // Auth endpoint doesn't exist (old version) — skip auth
+        setAuthUser({ email: "local", tenantId: "master" });
+        setAuthChecking(false);
+      });
   }, []);
 
   // Load categories from API
@@ -264,6 +283,9 @@ export default function App() {
       })
       .catch((err) => console.error("Failed to load stats:", err));
   }, []);
+
+  if (authChecking) return <div style={{ minHeight: "100vh", background: "#0a0a14" }} />;
+  if (!authUser) return <LoginPage onLogin={(user) => setAuthUser(user)} />;
 
   if (loading && activeTab === "graph") {
     return (
